@@ -1,0 +1,22 @@
+version: 1
+
+source_of_truth:
+  default_logic: docs
+  user_request_overrides_docs: true
+
+execution:
+  default_actions:
+    - implement
+    - static_review
+    - create_integration_branch
+  build: opt_in
+  test: opt_in
+  ui_verification: opt_in
+  performance_verification: opt_in
+
+worktrees:
+  root: .xforge/worktrees
+  main_checkout_read_only: true
+  integration_worktree: true
+
+base_branch: main

@@ -1,0 +1,23 @@
+# File-backed Figma fixture for tests + local smoke (no live MCP needed).
+file_version: fixture-v1
+nodes:
+  "10:23":
+    name: Alarm List - Empty
+    width: 393
+    height: 852
+    device: iPhone-15-Pro
+  "10:24":
+    name: Alarm List - Populated
+    width: 393
+    height: 852
+    device: iPhone-15-Pro
+  "20:10":
+    name: Alarm Editor - Default
+    width: 393
+    height: 852
+    device: iPhone-15-Pro
+  "20:11":
+    name: Alarm Editor - Weekdays Selected
+    width: 393
+    height: 852
+    device: iPhone-15-Pro

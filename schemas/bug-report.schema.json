@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/bug-report.schema.json",
+  "title": "XForge Bug Report",
+  "description": "Schema for a deduplicated bug report (blueprint §24, §25).",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "type",
+    "severity",
+    "priority",
+    "feature",
+    "fingerprint"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "type": {
+      "enum": ["Functional", "Visual", "Accessibility", "Performance"]
+    },
+    "severity": { "enum": ["blocker", "critical", "major", "minor", "info"] },
+    "priority": { "enum": ["P0", "P1", "P2", "P3"] },
+    "reproducibility": { "type": "string" },
+    "feature": { "type": "string" },
+    "status": { "enum": ["Open", "Triaged", "Duplicate"] },
+    "fingerprint": { "type": "string" },
+    "environment": { "type": "object" },
+    "preconditions": { "type": "array", "items": { "type": "string" } },
+    "steps": { "type": "array", "items": { "type": "string" } },
+    "expected_result": { "type": "string" },
+    "actual_result": { "type": "string" },
+    "evidence": { "type": "array" },
+    "related_requirements": { "type": "array", "items": { "type": "string" } },
+    "impacted_cases": { "type": "array", "items": { "type": "string" } },
+    "suspected_code": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

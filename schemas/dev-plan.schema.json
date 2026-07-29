@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/dev-plan.schema.json",
+  "title": "XForge Dev Plan",
+  "description": "Schema for .xforge/dev/plans/<plan-id>/plan.json (blueprint §8, §9).",
+  "type": "object",
+  "required": [
+    "id",
+    "project_id",
+    "feature",
+    "change_id",
+    "effective_spec",
+    "permissions",
+    "optional_actions",
+    "inputs"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "id": { "type": "string", "pattern": "^XFDEVPLAN-" },
+    "project_id": { "type": "string" },
+    "created_at": { "type": "string" },
+    "mode": { "enum": ["plan-first", "auto"] },
+    "feature": { "type": "string" },
+    "change_id": { "type": "string", "pattern": "^XFDEV-" },
+    "effective_spec": { "type": "object" },
+    "impact": { "type": "object" },
+    "groups": { "type": "array" },
+    "worktrees": { "type": "array" },
+    "integration_branch": { "type": "string" },
+    "permissions": { "type": "object" },
+    "optional_actions": {
+      "type": "object",
+      "description": "Build/test/UI/performance default NOT_REQUESTED; docs NOT_REQUIRED.",
+      "properties": {
+        "build": { "type": "string" },
+        "test": { "type": "string" },
+        "ui_verification": { "type": "string" },
+        "performance": { "type": "string" },
+        "docs_sync": { "type": "string" }
+      }
+    },
+    "requires_approval": { "type": "array", "items": { "type": "string" } },
+    "inputs": {
+      "type": "object",
+      "required": ["config_version"],
+      "properties": {
+        "base_branch": { "type": "string" },
+        "source_commit": { "type": "string" },
+        "config_version": { "type": "integer" },
+        "project_model_hash": { "type": "string" },
+        "effective_spec_hash": { "type": "string" }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

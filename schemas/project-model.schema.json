@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/project-model.schema.json",
+  "title": "XForge Canonical Project Model",
+  "description": "Schema for the Canonical Project Model (blueprint §9, §10).",
+  "type": "object",
+  "required": ["project", "metadata"],
+  "definitions": {
+    "status": {
+      "enum": [
+        "IMPLEMENTED",
+        "PARTIALLY_IMPLEMENTED",
+        "NOT_IMPLEMENTED",
+        "UNKNOWN",
+        "INFERRED",
+        "NEEDS_CONFIRMATION",
+        "DEPRECATED"
+      ]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "evidence": {
+      "type": "object",
+      "required": ["file", "kind"],
+      "properties": {
+        "id": { "type": "string" },
+        "file": { "type": "string" },
+        "start_line": { "type": "integer", "minimum": 1 },
+        "end_line": { "type": "integer", "minimum": 1 },
+        "kind": {
+          "enum": [
+            "source",
+            "test",
+            "config",
+            "doc",
+            "prd",
+            "manifest",
+            "plist",
+            "entitlement"
+          ]
+        },
+        "description": { "type": "string" },
+        "confidence": { "$ref": "#/definitions/confidence" }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": { "const": 1 },
+    "project": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "name": { "type": "string" },
+        "type": { "enum": ["ios-application", "ios-library", "unknown"] },
+        "platforms": { "type": "array", "items": { "type": "string" } },
+        "languages": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "principles": { "type": "array" },
+    "technologies": { "type": "array" },
+    "features": { "type": "array" },
+    "requirements": { "type": "array" },
+    "source_files": { "type": "array" },
+    "symbols": { "type": "array" },
+    "gaps": { "type": "array" },
+    "assumptions": { "type": "array" },
+    "metadata": {
+      "type": "object",
+      "required": ["generator_version"],
+      "properties": {
+        "generated_by": { "const": "xforge" },
+        "generator_version": { "type": "string" },
+        "source_commit": { "type": "string" },
+        "last_generated_at": { "type": "string" },
+        "confidence": { "$ref": "#/definitions/confidence" }
+      }
+    }
+  }
+}

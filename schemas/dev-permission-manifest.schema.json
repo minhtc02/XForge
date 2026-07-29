@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/dev-permission-manifest.schema.json",
+  "title": "XForge Dev Permission Manifest",
+  "description": "Scoped permissions for a dev plan (blueprint §16). Optional verification actions default to false.",
+  "type": "object",
+  "required": ["allowed", "optional", "denied"],
+  "properties": {
+    "allowed": {
+      "type": "object",
+      "properties": {
+        "readRepository": { "type": "boolean" },
+        "createWorktrees": { "type": "boolean" },
+        "writeWorktrees": { "type": "boolean" },
+        "readFigma": { "type": "boolean" },
+        "readProvidedImages": { "type": "boolean" },
+        "createSourceFiles": { "type": "boolean" },
+        "modifySourceFiles": { "type": "boolean" },
+        "createTestSourceFiles": { "type": "boolean" },
+        "commitFeatureBranches": { "type": "boolean" },
+        "mergeIntoIntegrationBranch": { "type": "boolean" }
+      }
+    },
+    "optional": {
+      "type": "object",
+      "description": "All default false — build/test/simulator/UI/performance are opt-in.",
+      "properties": {
+        "runBuild": { "type": "boolean" },
+        "runTests": { "type": "boolean" },
+        "runSimulator": { "type": "boolean" },
+        "runUIVerification": { "type": "boolean" },
+        "runPerformanceVerification": { "type": "boolean" }
+      }
+    },
+    "denied": {
+      "type": "object",
+      "properties": {
+        "modifyMainCheckout": { "type": "boolean" },
+        "mergeIntoMain": { "type": "boolean" },
+        "forcePush": { "type": "boolean" },
+        "modifySigning": { "type": "boolean" },
+        "accessProduction": { "type": "boolean" },
+        "publishBuild": { "type": "boolean" }
+      }
+    }
+  }
+}

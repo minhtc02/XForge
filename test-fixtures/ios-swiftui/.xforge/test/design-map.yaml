@@ -1,0 +1,21 @@
+version: 1
+
+features:
+  alarm:
+    screens:
+      alarm-list:
+        figma_url: https://figma.com/design/example?node-id=10-22
+        device: iPhone-15-Pro
+        states:
+          empty:
+            node_id: "10:23"
+          populated:
+            node_id: "10:24"
+      alarm-editor:
+        figma_url: https://figma.com/design/example?node-id=20-10
+        device: iPhone-15-Pro
+        states:
+          default:
+            node_id: "20:10"
+          weekdays-selected:
+            node_id: "20:11"

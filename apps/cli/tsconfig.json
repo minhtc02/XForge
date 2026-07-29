@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/core" },
+    { "path": "../../packages/test-core" },
+    { "path": "../../packages/dev-core" }
+  ],
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts"]
+}

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# XForge Claude plugin launcher.
+#
+# Prefers a globally-installed `xforge` on PATH; otherwise falls back to the
+# CLI built in this monorepo. This wrapper contains NO business logic — it only
+# locates and invokes the CLI so the plugin never duplicates core behavior.
+set -euo pipefail
+
+if command -v xforge >/dev/null 2>&1; then
+  exec xforge "$@"
+fi
+
+# Fall back to the monorepo build: plugins/claude/bin -> repo root is ../../..
+PLUGIN_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$PLUGIN_BIN_DIR/../../.." && pwd)"
+CLI_ENTRY="$REPO_ROOT/apps/cli/dist/index.js"
+
+if [ -f "$CLI_ENTRY" ]; then
+  exec node "$CLI_ENTRY" "$@"
+fi
+
+echo "xforge: CLI not found. Run 'pnpm build' in the XForge repo, or 'npm i -g @xforge/cli'." >&2
+exit 2

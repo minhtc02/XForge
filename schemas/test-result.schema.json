@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/test-result.schema.json",
+  "title": "XForge Test Result",
+  "description": "Schema for a single case execution result (blueprint §20.6).",
+  "type": "object",
+  "required": ["case_id", "status"],
+  "properties": {
+    "case_id": { "type": "string" },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL_FUNCTIONAL",
+        "FAIL_VISUAL",
+        "FAIL_ACCESSIBILITY",
+        "FAIL_PERFORMANCE",
+        "FLAKY",
+        "BLOCKED",
+        "INFRASTRUCTURE_FAILURE",
+        "ENVIRONMENT_BLOCKED",
+        "SKIPPED"
+      ]
+    },
+    "shard_id": { "type": "string" },
+    "duration_ms": { "type": "number" },
+    "message": { "type": "string" },
+    "evidence": { "type": "array" }
+  }
+}

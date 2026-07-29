@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/test-case.schema.json",
+  "title": "XForge Test Case",
+  "description": "Schema for a single QA test case (blueprint §8.2).",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "feature",
+    "types",
+    "priority",
+    "risk_score",
+    "automation"
+  ],
+  "properties": {
+    "id": { "type": "string", "pattern": "^TC-" },
+    "title": { "type": "string" },
+    "feature": { "type": "string" },
+    "types": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "functional",
+          "persistence",
+          "permissions",
+          "notifications",
+          "visual",
+          "accessibility",
+          "performance"
+        ]
+      },
+      "minItems": 1
+    },
+    "priority": { "enum": ["P0", "P1", "P2", "P3"] },
+    "risk_score": { "type": "number", "minimum": 0, "maximum": 10 },
+    "requirements": { "type": "array", "items": { "type": "string" } },
+    "code_references": { "type": "array" },
+    "design_references": { "type": "array" },
+    "preconditions": { "type": "array", "items": { "type": "string" } },
+    "steps": { "type": "array" },
+    "expected_results": { "type": "array", "items": { "type": "string" } },
+    "automation": {
+      "type": "object",
+      "properties": {
+        "framework": { "enum": ["xcuitest", "xctest", "manual", "none"] },
+        "execution_group": { "type": "string" },
+        "simulator_profile": { "type": "string" },
+        "blocked": { "type": "boolean" }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "provenance": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "xforge",
+  "owner": {
+    "name": "minhtc"
+  },
+  "metadata": {
+    "description": "XForge — Project Knowledge Compiler & AI Development Toolkit for iOS/Swift projects: evidence-backed docs, autonomous QA, and spec-first development.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "xforge",
+      "source": "./plugins/claude",
+      "description": "Compile a Canonical Project Model from iOS/Swift source, tests, PRD, Spec Kit and BMAD artifacts, then generate evidence-backed docs, plan + run autonomous QA, and implement features spec-first in isolated worktrees.",
+      "version": "0.1.0",
+      "license": "MIT",
+      "author": {
+        "name": "minhtc"
+      },
+      "keywords": [
+        "ios",
+        "swift",
+        "documentation",
+        "qa",
+        "testing",
+        "spec-first",
+        "worktree"
+      ]
+    }
+  ]
+}

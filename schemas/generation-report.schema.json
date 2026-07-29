@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/generation-report.schema.json",
+  "title": "XForge Generation Report",
+  "type": "object",
+  "required": ["generator_version", "generated_at"],
+  "properties": {
+    "generator_version": { "type": "string" },
+    "generated_at": { "type": "string" },
+    "source_commit": { "type": "string" },
+    "written_files": { "type": "array", "items": { "type": "string" } },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "swiftFiles": { "type": "integer" },
+        "technologies": { "type": "integer" },
+        "indexedFiles": { "type": "integer" }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "planned_not_implemented": { "type": "array" },
+        "implemented_not_in_prd": { "type": "array" },
+        "implemented_not_tested": { "type": "array" },
+        "implemented_not_documented": { "type": "array" }
+      }
+    }
+  }
+}

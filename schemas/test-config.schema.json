@@ -1,0 +1,41 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/test-config.schema.json",
+  "title": "XForge Test Configuration",
+  "description": "Schema for .xforge/test/config.yaml (blueprint §26).",
+  "type": "object",
+  "required": ["version"],
+  "properties": {
+    "version": { "const": 1 },
+    "project": { "type": "object" },
+    "sources": { "type": "object" },
+    "figma": { "type": "object" },
+    "testability": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": ["read-only", "test-support", "production-modification"]
+        }
+      }
+    },
+    "devices": { "type": "array" },
+    "workers": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "enum": [
+            "feature",
+            "device",
+            "test-type",
+            "risk",
+            "balanced-duration"
+          ]
+        }
+      }
+    },
+    "execution": { "type": "object" },
+    "visual": { "type": "object" },
+    "performance": { "type": "object" },
+    "output": { "type": "object" }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/effective-spec.schema.json",
+  "title": "XForge Dev Effective Spec",
+  "description": "Effective Spec = canonical docs + user overrides + approved plan (blueprint §13, §14).",
+  "type": "object",
+  "required": ["feature", "requirements"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "feature": { "type": "string" },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "source"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "source": {
+            "enum": [
+              "user-request",
+              "approved-plan",
+              "docs",
+              "constitution",
+              "figma",
+              "reference-image",
+              "source",
+              "existing-test",
+              "inference"
+            ]
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+    "overrides": { "type": "array" },
+    "differences": { "type": "array" },
+    "source_docs": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+  }
+}

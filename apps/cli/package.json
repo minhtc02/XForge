@@ -1,0 +1,30 @@
+{
+  "name": "@xforge/cli",
+  "version": "0.1.0",
+  "description": "XForge CLI — Project Knowledge Compiler",
+  "type": "module",
+  "bin": {
+    "xforge": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@xforge/core": "workspace:*",
+    "@xforge/dev-core": "workspace:*",
+    "@xforge/shared": "workspace:*",
+    "@xforge/test-core": "workspace:*",
+    "commander": "^13.0.0"
+  }
+}
