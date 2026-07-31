@@ -206,12 +206,28 @@ test
 
 test
   .command("plan")
-  .description("Generate a test plan (does not run tests)")
+  .description(
+    "Preflight, scaffold navigation, plan, and generate sources (runs no tests)",
+  )
   .option("--feature <ids>", "comma-separated feature ids to scope the plan")
   .option("--level <level>", "smoke | critical | regression | full")
+  .option("--no-doctor", "skip the environment preflight")
+  .option("--no-navigation", "do not scaffold navigation.yaml when missing")
+  .option("--no-generate", "do not generate XCUITest sources after planning")
+  .option("--probe", "also generate the accessibility probe class", false)
+  .option("--force", "overwrite existing generated sources", false)
   .action(async (opts, cmd: Command) => {
     await run(
-      (ctx) => runTestPlan(ctx, { feature: opts.feature, level: opts.level }),
+      (ctx) =>
+        runTestPlan(ctx, {
+          feature: opts.feature,
+          level: opts.level,
+          doctor: opts.doctor,
+          navigation: opts.navigation,
+          generate: opts.generate,
+          probe: opts.probe,
+          force: opts.force,
+        }),
       cmd,
     );
   });

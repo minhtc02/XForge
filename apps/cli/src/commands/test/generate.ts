@@ -21,6 +21,8 @@ export interface TestGenerateOptions {
   probe?: boolean;
   /** Overwrite existing generated sources. */
   force?: boolean;
+  /** Suppress output — used when `test plan` runs this as a sub-step. */
+  silent?: boolean;
 }
 
 export interface TestGenerateResult {
@@ -130,6 +132,8 @@ export async function runTestGenerate(
     unverifiedExpectations: unverified,
     strict,
   };
+
+  if (options.silent) return result;
 
   emitResult(ctx, result as unknown as Record<string, unknown>, () => {
     logger.success(`Generated XCUITest sources for ${planId}`);

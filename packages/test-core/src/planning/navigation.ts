@@ -27,12 +27,27 @@ export function parseNavigationGraph(input: unknown): NavigationGraph {
  * Derive a graph from the Canonical Project Model: every feature entry point
  * becomes a node reachable from the root. Confidence 0.6 — this asserts that a
  * screen exists, not that a single tap from the root reaches it.
+ *
+ * The anchor is taken from an accessibility identifier that genuinely exists in
+ * the feature's source, falling back to the entry-point type name only when the
+ * feature declares none. Using the type name by preference would produce a
+ * locator no test can ever find, blocking every case on the first run.
  */
 export function deriveGraphFromModel(
   model: ProjectModel,
   features?: Feature[],
 ): NavigationGraph {
   const scope = features ?? model.features;
+
+  // First literal accessibility identifier per feature, in source order.
+  const anchorByFeature = new Map<string, string>();
+  for (const id of model.accessibility_identifiers) {
+    if (id.dynamic || !id.value || !id.feature) continue;
+    if (!anchorByFeature.has(id.feature)) {
+      anchorByFeature.set(id.feature, id.value);
+    }
+  }
+
   const nodes: NavNode[] = [
     {
       id: ROOT_NODE,
@@ -46,7 +61,7 @@ export function deriveGraphFromModel(
   for (const feature of scope) {
     const screen = `${feature.id}-screen`;
     const entry = feature.entry_points[0];
-    const anchor = entry?.name ?? screen;
+    const anchor = anchorByFeature.get(feature.id) ?? entry?.name ?? screen;
     nodes.push({
       id: screen,
       anchor,

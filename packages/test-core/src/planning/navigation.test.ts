@@ -133,10 +133,48 @@ describe("deriveGraphFromModel", () => {
   it("creates a derived node per feature at confidence 0.6", () => {
     const derived = deriveGraphFromModel(model);
     const node = nodeForFeature(derived, "alarm");
+    // No accessibility identifier in this model, so the entry point's type
+    // name is the only thing left to anchor on.
     expect(node?.anchor).toBe("AlarmView");
     expect(node?.provenance).toBe("derived");
     expect(node?.confidence).toBe(0.6);
     expect(derived.root).toBe(ROOT_NODE);
+  });
+
+  it("anchors on a real accessibility identifier when the source has one", () => {
+    const withIds = parseProjectModel({
+      project: { id: "app", name: "App", type: "ios-application" },
+      features: [
+        {
+          id: "alarm",
+          name: "Alarm",
+          status: "IMPLEMENTED",
+          confidence: 0.9,
+          entry_points: [{ name: "AlarmView" }],
+        },
+      ],
+      accessibility_identifiers: [
+        // A dynamic one first: it must not be chosen, since no test could
+        // resolve it to a literal locator.
+        {
+          expression: '"alarm-row-\\(id)"',
+          file: "AlarmView.swift",
+          dynamic: true,
+          feature: "alarm",
+        },
+        {
+          value: "alarm-list",
+          expression: '"alarm-list"',
+          file: "AlarmView.swift",
+          dynamic: false,
+          feature: "alarm",
+        },
+      ],
+      metadata: { generator_version: "0.1.0" },
+    });
+    expect(nodeForFeature(deriveGraphFromModel(withIds), "alarm")?.anchor).toBe(
+      "alarm-list",
+    );
   });
 
   it("derived edges sit exactly at the default gate, never below", () => {

@@ -1,4 +1,5 @@
 import type { ScannedFile } from "./scanner.js";
+import { detectXcodeSetup, type XcodeSetup } from "../ios/xcode.js";
 
 /**
  * Deterministic project-type detection (blueprint §5.2, Phase 2).
@@ -14,6 +15,10 @@ export interface DetectionSignals {
   packageSwift?: string | null;
   /** Content of any Podfile, if present. */
   podfile?: string | null;
+  /** `project.pbxproj` contents, for scheme/target/bundle-id resolution. */
+  pbxproj?: Array<{ path: string; content: string }>;
+  /** Literal `CFBundleIdentifier` from an Info.plist, when there is one. */
+  infoPlistBundleId?: string;
 }
 
 export interface DetectionResult {
@@ -31,6 +36,12 @@ export interface DetectionResult {
   profile: "ios-swift" | "generic";
   /** Package/product name parsed from Package.swift, if available. */
   packageName?: string;
+  /**
+   * Scheme / targets / bundle id resolved from the Xcode project, when there is
+   * one. `init` writes these into the test config so `xcodebuild` is never
+   * invoked with placeholder values.
+   */
+  xcode?: XcodeSetup;
 }
 
 function anyMatch(files: ScannedFile[], re: RegExp): boolean {
@@ -126,6 +137,19 @@ export function detectProject(
     xcodeWorkspaces.length > 0 ||
     hasPackageSwift;
 
+  const xcode =
+    xcodeProjects.length > 0 || xcodeWorkspaces.length > 0
+      ? detectXcodeSetup({
+          files,
+          ...(signals.pbxproj ? { pbxproj: signals.pbxproj } : {}),
+          workspaces: xcodeWorkspaces,
+          projects: xcodeProjects,
+          ...(signals.infoPlistBundleId
+            ? { infoPlistBundleId: signals.infoPlistBundleId }
+            : {}),
+        })
+      : undefined;
+
   return {
     platform: isIos ? "iOS" : "unknown",
     languages,
@@ -140,5 +164,6 @@ export function detectProject(
     swiftFileCount,
     profile: isIos ? "ios-swift" : "generic",
     packageName,
+    ...(xcode ? { xcode } : {}),
   };
 }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AlreadyExistsError, createLogger } from "@xforge/shared";
 import { loadConfig } from "@xforge/core";
+import { loadTestConfig } from "@xforge/test-core";
 import { runInit } from "./init.js";
 import type { CliContext } from "../context.js";
 
@@ -47,6 +48,46 @@ async function scaffoldIosFixture(dir: string): Promise<void> {
   await writeFile(
     join(dir, "GoogleService-Info.plist"),
     "SECRET_API_KEY=abc123",
+  );
+}
+
+/** A minimal but realistic Xcode project: shared scheme, app + UI test target. */
+async function scaffoldXcodeProject(dir: string): Promise<void> {
+  await mkdir(join(dir, "Cuckoo.xcodeproj/xcshareddata/xcschemes"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(dir, "Cuckoo.xcodeproj/xcshareddata/xcschemes/Cuckoo.xcscheme"),
+    "<Scheme/>",
+  );
+  await writeFile(
+    join(dir, "Cuckoo.xcodeproj/project.pbxproj"),
+    `// !$*UTF8*$!
+{
+	objects = {
+/* Begin PBXNativeTarget section */
+		A1 /* Cuckoo */ = {
+			isa = PBXNativeTarget;
+			name = Cuckoo;
+			productType = "com.apple.product-type.application";
+		};
+		A2 /* CuckooUITests */ = {
+			isa = PBXNativeTarget;
+			name = CuckooUITests;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+/* Begin XCBuildConfiguration section */
+		B1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = com.acme.cuckoo;
+			};
+		};
+/* End XCBuildConfiguration section */
+	};
+}
+`,
   );
 }
 
@@ -99,5 +140,61 @@ describe("runInit", () => {
     await runInit(ctx(root), {});
     const result = await runInit(ctx(root), { force: true });
     expect(result.createdConfig).toBe(true);
+  });
+
+  it("writes a QA config with the resolved Xcode values", async () => {
+    await scaffoldIosFixture(root);
+    await scaffoldXcodeProject(root);
+    const result = await runInit(ctx(root), {});
+
+    expect(result.detection.xcode?.scheme).toBe("Cuckoo");
+    expect(result.detection.xcode?.uiTestTarget).toBe("CuckooUITests");
+    expect(result.unresolvedXcodeFields).toEqual([]);
+
+    const testConfig = await loadTestConfig(root);
+    expect(testConfig.project.scheme).toBe("Cuckoo");
+    expect(testConfig.project.app_bundle_id).toBe("com.acme.cuckoo");
+    expect(testConfig.project.ui_test_target).toBe("CuckooUITests");
+    expect(testConfig.project.project).toBe("Cuckoo.xcodeproj");
+  });
+
+  it("leaves unresolvable fields as `auto` and reports them", async () => {
+    // No .xcodeproj at all: an SPM package. Nothing may be invented.
+    await scaffoldIosFixture(root);
+    const result = await runInit(ctx(root), {});
+    expect(result.detection.xcode).toBeUndefined();
+
+    const testConfig = await loadTestConfig(root);
+    expect(testConfig.project.scheme).toBe("auto");
+    expect(testConfig.project.app_bundle_id).toBe("auto");
+  });
+
+  it("does not clobber a QA config the user already wrote", async () => {
+    await scaffoldIosFixture(root);
+    await scaffoldXcodeProject(root);
+    // A hand-written QA config that predates `init` must survive it.
+    await mkdir(join(root, ".xforge/test"), { recursive: true });
+    await writeFile(
+      join(root, ".xforge/test/config.yaml"),
+      "version: 1\nproject:\n  scheme: HandEdited\n",
+    );
+
+    const result = await runInit(ctx(root), {});
+    expect(result.testConfigSkipped).toBe(true);
+    expect(result.testConfigPath).toBeUndefined();
+    expect((await loadTestConfig(root)).project.scheme).toBe("HandEdited");
+  });
+
+  it("regenerates the QA config with --force", async () => {
+    await scaffoldIosFixture(root);
+    await scaffoldXcodeProject(root);
+    await mkdir(join(root, ".xforge/test"), { recursive: true });
+    await writeFile(
+      join(root, ".xforge/test/config.yaml"),
+      "version: 1\nproject:\n  scheme: HandEdited\n",
+    );
+
+    await runInit(ctx(root), { force: true });
+    expect((await loadTestConfig(root)).project.scheme).toBe("Cuckoo");
   });
 });

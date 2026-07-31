@@ -29,6 +29,7 @@ export interface TestDoctorResult {
  */
 export async function runTestDoctor(
   ctx: CliContext,
+  options: { silent?: boolean } = {},
 ): Promise<TestDoctorResult> {
   const { projectRoot } = ctx;
   const checks: TestDoctorCheck[] = [];
@@ -145,9 +146,11 @@ export async function runTestDoctor(
     exitCode: ok ? ExitCode.Success : ExitCode.ConfigOrRuntimeError,
   };
 
-  emitResult(ctx, result as unknown as Record<string, unknown>, () =>
-    renderTestDoctor(result),
-  );
+  if (!options.silent) {
+    emitResult(ctx, result as unknown as Record<string, unknown>, () =>
+      renderTestDoctor(result),
+    );
+  }
   return result;
 }
 

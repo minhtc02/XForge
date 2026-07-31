@@ -21,6 +21,8 @@ export interface TestNavigationOptions {
   /** Scaffold navigation.yaml from the Project Model. */
   init?: boolean;
   force?: boolean;
+  /** Suppress output — used when `test plan` runs this as a sub-step. */
+  silent?: boolean;
 }
 
 export interface TestNavigationResult {
@@ -90,6 +92,8 @@ export async function runTestNavigation(
     unreachable,
     minEdgeConfidence: pathOptions.minEdgeConfidence,
   };
+
+  if (options.silent) return result;
 
   emitResult(ctx, result as unknown as Record<string, unknown>, () => {
     if (created) {

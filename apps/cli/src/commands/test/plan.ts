@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, relative } from "node:path";
 import { ValidationError } from "@xforge/shared";
 import { hashContent, statePath } from "@xforge/core";
 import {
@@ -9,6 +9,7 @@ import {
   ensureTestDirs,
   loadDesignMap,
   makePlanId,
+  navigationGraphPath,
   planDir,
   plansDir,
   planFilePath,
@@ -24,11 +25,23 @@ import {
   loadTestModelContext,
   probeEnvironment,
 } from "./shared.js";
-import { resolveNavigationGraph } from "./navigation.js";
+import { resolveNavigationGraph, runTestNavigation } from "./navigation.js";
+import { runTestDoctor } from "./doctor.js";
+import { runTestGenerate } from "./generate.js";
 
 export interface TestPlanOptions {
   feature?: string;
   level?: string;
+  /** Run the environment preflight first. Default true. */
+  doctor?: boolean;
+  /** Scaffold navigation.yaml when the project has none. Default true. */
+  navigation?: boolean;
+  /** Generate XCUITest sources once the plan is written. Default true. */
+  generate?: boolean;
+  /** Also emit the accessibility probe class when generating. */
+  probe?: boolean;
+  /** Overwrite existing generated sources. */
+  force?: boolean;
 }
 
 export interface TestPlanResult {
@@ -53,6 +66,19 @@ export interface TestPlanResult {
   unreachableFeatures: string[];
   /** State buckets folded back because the per-feature cap was exceeded. */
   mergedBuckets: string[];
+  /** Preflight outcome, when the doctor step ran. */
+  preflight?: { ok: boolean; warnings: string[] };
+  /** Set when this run scaffolded a navigation graph. */
+  navigationScaffolded?: string;
+  /** Generation outcome, when the generate step ran. */
+  generated?: {
+    outputDir: string;
+    cases: number;
+    assertions: number;
+    unverifiedExpectations: number;
+  };
+  /** Why generation was skipped, when it was attempted but could not run. */
+  generateSkippedReason?: string;
   approved: boolean;
 }
 
@@ -77,7 +103,45 @@ export async function runTestPlan(
         .filter(Boolean)
     : [];
 
+  // --- Preflight (§4.1: never discover a blocker mid-run) ---------------
+  // Planning is cheap; a broken environment is not. Run the doctor's checks
+  // first so a missing model or config fails here rather than three commands
+  // later. Only hard failures stop us — missing Xcode is a warning off a Mac.
+  let preflight: TestPlanResult["preflight"];
+  if (options.doctor !== false) {
+    const doctor = await runTestDoctor(ctx, { silent: true });
+    const failures = doctor.checks.filter((c) => c.status === "fail");
+    preflight = {
+      ok: doctor.ok,
+      warnings: doctor.checks
+        .filter((c) => c.status === "warn")
+        .map((c) => `${c.name}: ${c.detail}`),
+    };
+    if (failures.length > 0) {
+      throw new ValidationError(
+        `Environment is not ready for planning:\n${failures
+          .map((c) => `  ✗ ${c.name} — ${c.detail}`)
+          .join("\n")}\nRun \`xforge test doctor\` for the full report.`,
+        { details: { failures } },
+      );
+    }
+  }
+
   const { model, testConfig } = await loadTestModelContext(ctx);
+
+  // --- Navigation graph -------------------------------------------------
+  // Scaffold one when the project has none, so BFS has something authored to
+  // work from. Reported loudly: every scaffolded edge is `derived` (0.6) and
+  // needs review before it can be trusted.
+  let navigationScaffolded: string | undefined;
+  if (
+    options.navigation !== false &&
+    testConfig.navigation.enabled &&
+    !existsSync(navigationGraphPath(projectRoot, testConfig.navigation.graph))
+  ) {
+    const nav = await runTestNavigation(ctx, { init: true, silent: true });
+    navigationScaffolded = nav.graphPath;
+  }
   const env = await probeEnvironment(projectRoot);
   const existingTestCount = await inventoryExistingTests(
     projectRoot,
@@ -194,6 +258,31 @@ export async function runTestPlan(
   await write("permissions", renderPermissionsDoc(plan));
   await write("testabilityReport", renderTestabilityReport(plan));
 
+  // --- Generate XCUITest sources ---------------------------------------
+  // Writing Swift is not running tests, so this stays within what `test plan`
+  // promises. A generation failure (e.g. every case blocked) must not discard
+  // the plan we just wrote — it is reported instead.
+  let generated: TestPlanResult["generated"];
+  let generateSkippedReason: string | undefined;
+  if (options.generate !== false) {
+    try {
+      const result = await runTestGenerate(ctx, planId, {
+        silent: true,
+        ...(options.probe ? { probe: true } : {}),
+        ...(options.force ? { force: true } : {}),
+      });
+      generated = {
+        outputDir: result.outputDir,
+        cases: result.cases,
+        assertions: result.assertions,
+        unverifiedExpectations: result.unverifiedExpectations,
+      };
+    } catch (error) {
+      generateSkippedReason =
+        error instanceof Error ? error.message : String(error);
+    }
+  }
+
   const result: TestPlanResult = {
     planId,
     planDir: planDir(projectRoot, planId),
@@ -213,11 +302,22 @@ export async function runTestPlan(
     },
     unreachableFeatures,
     mergedBuckets,
+    ...(preflight ? { preflight } : {}),
+    ...(navigationScaffolded ? { navigationScaffolded } : {}),
+    ...(generated ? { generated } : {}),
+    ...(generateSkippedReason ? { generateSkippedReason } : {}),
     approved: false,
   };
 
   emitResult(ctx, result as unknown as Record<string, unknown>, () => {
     logger.success(`Test plan created: ${planId}`);
+    if (result.navigationScaffolded) {
+      process.stderr.write(
+        `\n  Scaffolded navigation graph: ${relative(projectRoot, result.navigationScaffolded)}\n` +
+          "    Every edge starts at provenance `derived` (0.6). Review it and\n" +
+          "    raise confirmed ones to `explicit` before trusting the paths.\n",
+      );
+    }
     process.stderr.write(
       `\n  Cases:              ${result.stats.total_cases}\n` +
         `  Suites:             ${result.stats.suites}\n` +
@@ -247,10 +347,39 @@ export async function runTestPlan(
           " (state.max_buckets_per_feature exceeded)\n",
       );
     }
+    if (result.generated) {
+      process.stderr.write(
+        `\n  Generated:          ${result.generated.cases} case(s), ` +
+          `${result.generated.assertions} assertion(s)` +
+          `${result.generated.unverifiedExpectations > 0 ? `, ${result.generated.unverifiedExpectations} unverified` : ""}\n` +
+          `                      ${relative(projectRoot, result.generated.outputDir)}/\n`,
+      );
+    } else if (result.generateSkippedReason) {
+      process.stderr.write(
+        `\n! Sources not generated: ${result.generateSkippedReason}\n` +
+          "  The plan itself was written — fix the issue and run\n" +
+          `  \`xforge test generate ${planId}\`.\n`,
+      );
+    }
+
+    for (const warning of result.preflight?.warnings ?? []) {
+      process.stderr.write(`  ! ${warning}\n`);
+    }
+
     process.stderr.write(
-      `\n  Plan: ${planFilePath(projectRoot, planId, "planMarkdown")}\n` +
-        `\n  Next:\n    xforge test generate ${planId}\n    xforge test approve ${planId}\n`,
+      `\n  Plan: ${planFilePath(projectRoot, planId, "planMarkdown")}\n`,
     );
+    if (result.generated) {
+      process.stderr.write(
+        `\n  Next:\n    review ${relative(projectRoot, result.generated.outputDir)}/README.md` +
+          " (add the sources to your UI test target)\n" +
+          `    xforge test approve ${planId}\n`,
+      );
+    } else {
+      process.stderr.write(
+        `\n  Next:\n    xforge test generate ${planId}\n    xforge test approve ${planId}\n`,
+      );
+    }
   });
   return result;
 }
