@@ -5,6 +5,8 @@ export * from "./state/index.js";
 export * from "./manual-blocks/index.js";
 export * from "./discovery/index.js";
 export * from "./swift/index.js";
+export * from "./ios/index.js";
 export * from "./analysis/index.js";
 export * from "./prd/index.js";
+export * from "./sync/index.js";
 export * from "./generators/index.js";

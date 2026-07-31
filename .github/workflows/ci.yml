@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm test
+
+      # Smoke: the published bundle must run standalone, with no workspace
+      # resolution and no runtime dependencies.
+      - name: CLI smoke test on the iOS fixture
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          cp -R test-fixtures/ios-swiftui/. "$work"
+          rm -rf "$work/.xforge"
+          node apps/cli/bundle/xforge.mjs --cwd "$work" init --non-interactive
+          node apps/cli/bundle/xforge.mjs --cwd "$work" docs
+          node apps/cli/bundle/xforge.mjs --cwd "$work" docs check
+
+  # Example for consumers: fail the build when documentation drifts (§22).
+  docs-drift:
+    runs-on: ubuntu-latest
+    needs: verify
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Check documentation drift
+        run: node apps/cli/bundle/xforge.mjs docs check
+        continue-on-error: true

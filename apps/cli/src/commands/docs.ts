@@ -2,21 +2,35 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  buildDependencyGraph,
+  buildFeatureMap,
+  buildGenerationState,
+  buildRequirementMap,
+  generateAccessibilityDoc,
+  generateAnalyticsDoc,
+  generateApiDoc,
   generateArchitecture,
   generateAssumptions,
   generateBuildAndRelease,
   generateCoverageDoc,
+  generateDataModelsDoc,
   generateEvidenceJsonl,
   generateFeatureDoc,
   generateFeatureIndex,
   generateGapsDoc,
   generateGettingStarted,
+  generateMigrationsDoc,
+  generateNotificationsDoc,
   generateOverview,
+  generatePerformanceDoc,
+  generatePersistenceDoc,
   generatePrinciples,
   generateReport,
   generateRepositoryStructure,
+  generateSecurityDoc,
   generateTechnologyStack,
   generateTestingStrategy,
+  generateThirdPartyDoc,
   generateUndocumentedCode,
   loadConfig,
   mergeManualContent,
@@ -35,6 +49,11 @@ export interface DocsOptions {
   input?: string;
   language?: string;
   dryRun?: boolean;
+  /**
+   * Restrict writes to these output-relative document paths (blueprint §21).
+   * `_meta` artifacts and state files are always written — they *are* the model.
+   */
+  onlyDocuments?: ReadonlySet<string>;
 }
 
 export interface DocsResult {
@@ -43,6 +62,7 @@ export interface DocsResult {
   modelPath: string;
   fileIndexPath: string;
   writtenFiles: string[];
+  skippedDocuments: number;
   stats: {
     features: number;
     requirements: number;
@@ -76,6 +96,16 @@ export async function runDocs(
     config,
   );
 
+  // `docs` is non-interactive by design (§24.2 supports --json / CI use): a
+  // missing PRD is reported, never prompted for. Requirement authoring belongs
+  // to the user's own PRD/Spec Kit/BMAD workflow, not to a doc generation run.
+  if (model.requirements.length === 0) {
+    logger.warn(
+      "No PRD requirements found — traceability will be empty. Add a PRD " +
+        "matching `sources.prd` in .xforge/config.yaml, then re-run.",
+    );
+  }
+
   const genCtx: GenContext = {
     model,
     language: config.output.language,
@@ -83,9 +113,14 @@ export async function runDocs(
   };
   const outRoot = config.output.root;
   const writtenFiles: string[] = [];
+  let skippedDocuments = 0;
 
   const write = async (rel: string, content: string): Promise<void> => {
     if (options.dryRun) return;
+    if (options.onlyDocuments && !options.onlyDocuments.has(rel)) {
+      skippedDocuments += 1;
+      return;
+    }
     const abs = join(projectRoot, outRoot, rel);
     const existing =
       config.generation.preserve_manual_blocks && existsSync(abs)
@@ -108,8 +143,28 @@ export async function runDocs(
   await write("getting-started.md", generateGettingStarted(genCtx));
   await write("build-and-release.md", generateBuildAndRelease(genCtx));
 
+  // Data (§7).
+  await write("data/data-models.md", generateDataModelsDoc(genCtx));
+  await write("data/persistence.md", generatePersistenceDoc(genCtx));
+  await write("data/migrations.md", generateMigrationsDoc(genCtx));
+
+  // Integrations (§7).
+  await write("integrations/api.md", generateApiDoc(genCtx));
+  await write(
+    "integrations/notifications.md",
+    generateNotificationsDoc(genCtx),
+  );
+  await write("integrations/analytics.md", generateAnalyticsDoc(genCtx));
+  await write(
+    "integrations/third-party-services.md",
+    generateThirdPartyDoc(genCtx),
+  );
+
   // Quality (§7).
   await write("quality/testing-strategy.md", generateTestingStrategy(genCtx));
+  await write("quality/security.md", generateSecurityDoc(genCtx));
+  await write("quality/accessibility.md", generateAccessibilityDoc(genCtx));
+  await write("quality/performance.md", generatePerformanceDoc(genCtx));
 
   // Feature docs (§8).
   await write("features/index.md", generateFeatureIndex(genCtx));
@@ -141,16 +196,14 @@ export async function runDocs(
     "_meta",
     "project-model.json",
   );
+  const generatedAt = new Date().toISOString();
   if (!options.dryRun) {
     await writeFileEnsured(modelStatePath, modelJson);
     await writeFileEnsured(metaModelPath, modelJson);
     await writeFileEnsured(
       fileIndexPath,
-      JSON.stringify(
-        { files: fileIndex, generated_at: new Date().toISOString() },
-        null,
-        2,
-      ) + "\n",
+      JSON.stringify({ files: fileIndex, generated_at: generatedAt }, null, 2) +
+        "\n",
     );
     await writeFileEnsured(
       join(projectRoot, outRoot, "_meta", "evidence.jsonl"),
@@ -160,6 +213,34 @@ export async function runDocs(
       join(projectRoot, outRoot, "_meta", "generation-report.json"),
       generateReport(model, writtenFiles),
     );
+
+    // Remaining §19 state files. These are what make `docs sync` incremental:
+    // the dependency graph maps a changed source file to the documents it
+    // invalidates, so the next sync rewrites only those.
+    const stateFiles: Array<[Parameters<typeof statePath>[1], unknown]> = [
+      ["dependencyGraph", buildDependencyGraph(model, generatedAt)],
+      ["featureMap", buildFeatureMap(model, generatedAt)],
+      ["requirementMap", buildRequirementMap(model, generatedAt)],
+      [
+        "generationState",
+        buildGenerationState({
+          model,
+          writtenFiles,
+          generatedAt,
+          fileCount: Object.keys(fileIndex).length,
+          scoped: options.onlyDocuments
+            ? [...options.onlyDocuments].sort()
+            : undefined,
+        }),
+      ],
+    ];
+    for (const [key, value] of stateFiles) {
+      await writeFileEnsured(
+        statePath(projectRoot, key),
+        JSON.stringify(value, null, 2) + "\n",
+      );
+    }
+
     writtenFiles.push(
       join(outRoot, "_meta", "project-model.json"),
       join(outRoot, "_meta", "evidence.jsonl"),
@@ -173,6 +254,7 @@ export async function runDocs(
     modelPath: metaModelPath,
     fileIndexPath,
     writtenFiles,
+    skippedDocuments,
     stats: {
       features: model.features.length,
       requirements: model.requirements.length,
@@ -210,8 +292,20 @@ function renderIndexDoc(
           "- [Kiến trúc](./architecture.md)",
           "- [Cấu trúc repository](./repository-structure.md)",
           "- [Tính năng](./features/index.md)",
+          "- [Mô hình dữ liệu](./data/data-models.md)",
+          "- [Lưu trữ](./data/persistence.md)",
+          "- [Migration dữ liệu](./data/migrations.md)",
+          "- [API & endpoint](./integrations/api.md)",
+          "- [Thông báo](./integrations/notifications.md)",
+          "- [Analytics](./integrations/analytics.md)",
+          "- [Dịch vụ bên thứ ba](./integrations/third-party-services.md)",
+          "- [Chiến lược kiểm thử](./quality/testing-strategy.md)",
+          "- [Bảo mật & quyền riêng tư](./quality/security.md)",
+          "- [Khả năng tiếp cận](./quality/accessibility.md)",
+          "- [Hiệu năng](./quality/performance.md)",
           "- [Đối chiếu PRD](./traceability/prd-coverage.md)",
           "- [Khoảng trống triển khai](./traceability/implementation-gaps.md)",
+          "- [Code chưa tài liệu hóa](./traceability/undocumented-code.md)",
         ]
       : [
           "- [Project overview](./project-overview.md)",
@@ -220,8 +314,20 @@ function renderIndexDoc(
           "- [Architecture](./architecture.md)",
           "- [Repository structure](./repository-structure.md)",
           "- [Features](./features/index.md)",
+          "- [Data models](./data/data-models.md)",
+          "- [Persistence](./data/persistence.md)",
+          "- [Migrations](./data/migrations.md)",
+          "- [API & endpoints](./integrations/api.md)",
+          "- [Notifications](./integrations/notifications.md)",
+          "- [Analytics](./integrations/analytics.md)",
+          "- [Third-party services](./integrations/third-party-services.md)",
+          "- [Testing strategy](./quality/testing-strategy.md)",
+          "- [Security & privacy](./quality/security.md)",
+          "- [Accessibility](./quality/accessibility.md)",
+          "- [Performance](./quality/performance.md)",
           "- [PRD coverage](./traceability/prd-coverage.md)",
           "- [Implementation gaps](./traceability/implementation-gaps.md)",
+          "- [Undocumented code](./traceability/undocumented-code.md)",
         ];
   return [
     "---",

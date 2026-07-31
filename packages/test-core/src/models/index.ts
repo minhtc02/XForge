@@ -7,6 +7,7 @@ import { RunResult } from "./result.js";
 
 export * from "./enums.js";
 export * from "./test-case.js";
+export * from "./navigation.js";
 export * from "./plan.js";
 export * from "./approval.js";
 export * from "./bug.js";

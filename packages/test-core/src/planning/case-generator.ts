@@ -1,6 +1,8 @@
 import type { Feature, ProjectModel, Requirement } from "@xforge/core";
-import type { TestCase } from "../models/test-case.js";
+import type { TestCase, TestStep } from "../models/test-case.js";
+import type { NavigationGraph } from "../models/navigation.js";
 import type { RunLevel, TestType, Priority } from "../models/enums.js";
+import { nodeForFeature, shortestPath, stepsForPath } from "./navigation.js";
 import {
   computeRiskScore,
   priorityForScore,
@@ -22,6 +24,41 @@ export interface CaseGenInput {
   features: Feature[];
   level: RunLevel;
   recentlyChangedFeatures?: ReadonlySet<string>;
+  /** Navigation graph used to derive the prefix that reaches each screen (§A). */
+  navigation?: {
+    graph: NavigationGraph;
+    minEdgeConfidence?: number;
+    maxPathLength?: number;
+  };
+}
+
+/** Navigation prefix for a feature, or `undefined` when it is unreachable. */
+function navigationPrefix(
+  input: CaseGenInput,
+  feature: Feature,
+): { steps: TestStep[]; anchor: string; confidence: number } | undefined {
+  const nav = input.navigation;
+  const fallbackAnchor =
+    feature.entry_points[0]?.name ?? `${feature.id}-screen`;
+  if (!nav) {
+    // No graph: keep the original single-hop behaviour.
+    return {
+      steps: [{ id: "step-2", action: "open", target: fallbackAnchor }],
+      anchor: fallbackAnchor,
+      confidence: 0.6,
+    };
+  }
+
+  const node = nodeForFeature(nav.graph, feature.id);
+  if (!node) return undefined;
+  const path = shortestPath(nav.graph, nav.graph.root, node.id, {
+    minEdgeConfidence: nav.minEdgeConfidence,
+    maxPathLength: nav.maxPathLength,
+  });
+  if (!path) return undefined;
+
+  const { steps } = stepsForPath(path, 2);
+  return { steps, anchor: node.anchor, confidence: path.confidence };
 }
 
 /** Category templates per run level (broader levels add more categories). */
@@ -57,6 +94,7 @@ function casesForFeature(
   feature: Feature,
   types: TestType[],
   recentlyChanged: boolean,
+  navInput: CaseGenInput,
 ): TestCase[] {
   const reqs = featureRequirements(model, feature);
   const hasTests = feature.evidence.some((e) => e.kind === "test");
@@ -85,6 +123,7 @@ function casesForFeature(
     caseTypes: TestType[],
     steps: TestCase["steps"],
     expected: string[],
+    assertions: TestCase["assertions"] = [],
   ): void => {
     seq += 1;
     cases.push({
@@ -100,6 +139,7 @@ function casesForFeature(
       preconditions: ["App freshly launched", "Test-support seed data applied"],
       steps,
       expected_results: expected,
+      assertions,
       automation: {
         framework: "xcuitest",
         execution_group: `${feature.id}-core`,
@@ -110,60 +150,109 @@ function casesForFeature(
     });
   };
 
+  // The navigation prefix: BFS-derived when a graph is available, otherwise the
+  // single-hop fallback. `undefined` means the screen is unreachable — every
+  // case for this feature is then blocked rather than given a guessed path.
+  const prefix = navigationPrefix(navInput, feature);
+  if (!prefix) return [];
+  const anchor = prefix.anchor;
+  const launch: TestStep = { id: "step-1", action: "launch-app" };
+  const nav = prefix.steps;
+  const afterNav = nav.length + 2;
+  void entry;
+
   // Happy-path functional case (always present).
+  const visibleExpectation = `${feature.name} screen is visible`;
   push(
     `Launch and open ${feature.name}`,
     ["functional"],
+    [launch, ...nav],
+    [visibleExpectation],
     [
-      { id: "step-1", action: "launch-app" },
       {
-        id: "step-2",
-        action: "open",
-        target: entry ? entry.name : `${feature.id}-screen`,
+        id: "assert-1",
+        kind: "screen-is",
+        target: anchor,
+        source_text: visibleExpectation,
       },
     ],
-    [`${feature.name} screen is visible`],
   );
 
   if (types.includes("persistence")) {
+    const persistExpectation =
+      "Previously created item is still present after relaunch";
     push(
       `${feature.name} state persists across relaunch`,
       ["functional", "persistence"],
       [
-        { id: "step-1", action: "launch-app" },
-        { id: "step-2", action: "open", target: `${feature.id}-screen` },
-        { id: "step-3", action: "create-item" },
-        { id: "step-4", action: "relaunch-app" },
+        launch,
+        ...nav,
+        { id: `step-${afterNav}`, action: "create-item" },
+        { id: `step-${afterNav + 1}`, action: "relaunch-app" },
       ],
-      ["Previously created item is still present after relaunch"],
+      [persistExpectation],
+      [
+        {
+          id: "assert-1",
+          kind: "exists",
+          target: anchor,
+          source_text: persistExpectation,
+        },
+      ],
     );
   }
 
   if (types.includes("visual") && feature.entry_points.length > 0) {
+    // The visual verdict is decided by the analyzer from the captured image;
+    // the in-test assertion only proves the screen we captured was the right
+    // one, so a mis-navigated capture cannot silently pass.
+    const onScreen = `${feature.name} screen is on display when captured`;
     push(
       `${feature.name} matches design reference`,
       ["visual"],
       [
-        { id: "step-1", action: "launch-app" },
-        { id: "step-2", action: "open", target: `${feature.id}-screen` },
-        { id: "step-3", action: "capture-screenshot" },
+        launch,
+        ...nav,
+        {
+          id: `step-${afterNav}`,
+          action: "capture-screenshot",
+          target: anchor,
+        },
       ],
-      ["UI matches the mapped Figma state within tolerance"],
+      [onScreen, "UI matches the mapped Figma state within tolerance"],
+      [
+        {
+          id: "assert-1",
+          kind: "screen-is",
+          target: anchor,
+          source_text: onScreen,
+        },
+      ],
     );
   }
 
   if (types.includes("accessibility")) {
+    const reachable = `${feature.name} screen is reachable for the audit`;
     push(
       `${feature.name} is accessible`,
       ["accessibility"],
       [
-        { id: "step-1", action: "launch-app" },
-        { id: "step-2", action: "open", target: `${feature.id}-screen` },
-        { id: "step-3", action: "audit-accessibility" },
+        launch,
+        ...nav,
+        { id: `step-${afterNav}`, action: "audit-accessibility" },
       ],
       [
+        reachable,
         "Interactive elements have accessibility identifiers and labels",
         "Hit targets meet minimum size",
+      ],
+      [
+        {
+          id: "assert-1",
+          kind: "screen-is",
+          target: anchor,
+          source_text: reachable,
+        },
       ],
     );
   }
@@ -180,11 +269,39 @@ function casesForFeature(
   return cases;
 }
 
+export interface CaseGenResult {
+  cases: TestCase[];
+  /** Features the navigation graph could not reach — reported, never guessed. */
+  unreachableFeatures: string[];
+}
+
 /** Generate the full case set for the plan. */
 export function generateTestCases(input: CaseGenInput): TestCase[] {
+  return generateTestCasesWithDiagnostics(input).cases;
+}
+
+/** Case generation plus the features it had to skip. */
+export function generateTestCasesWithDiagnostics(
+  input: CaseGenInput,
+): CaseGenResult {
   const types = LEVEL_TYPES[input.level];
   const recent = input.recentlyChangedFeatures ?? new Set<string>();
-  return input.features.flatMap((f) =>
-    casesForFeature(input.model, f, types, recent.has(f.id)),
-  );
+  const cases: TestCase[] = [];
+  const unreachable: string[] = [];
+
+  for (const feature of input.features) {
+    const generated = casesForFeature(
+      input.model,
+      feature,
+      types,
+      recent.has(feature.id),
+      input,
+    );
+    if (generated.length === 0) {
+      unreachable.push(feature.id);
+      continue;
+    }
+    cases.push(...generated);
+  }
+  return { cases, unreachableFeatures: unreachable };
 }

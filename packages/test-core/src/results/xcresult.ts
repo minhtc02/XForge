@@ -95,6 +95,7 @@ export function parseXcresult(
       normalized_error: message ? normalizeError(message) : undefined,
       retries: 0,
       evidence: [],
+      verdict_source: "xcuitest",
     };
   });
 }

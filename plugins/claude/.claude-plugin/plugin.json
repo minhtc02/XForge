@@ -1,10 +1,10 @@
 {
   "name": "xforge",
   "version": "0.1.0",
-  "description": "XForge — Project Knowledge Compiler & AI Development Toolkit. Generates evidence-backed project documentation from source code, tests, PRD, Spec Kit and BMAD artifacts.",
-  "author": "XForge",
+  "description": "XForge — Project Knowledge Compiler & AI Development Toolkit. Generates evidence-backed project documentation from source code, tests, PRD, Spec Kit and BMAD artifacts, plans and runs autonomous iOS QA, and implements features spec-first in isolated worktrees.",
+  "author": {
+    "name": "minhtc"
+  },
   "license": "MIT",
-  "commands": "./commands",
-  "skills": "./skills",
-  "agents": "./agents"
+  "keywords": ["ios", "swift", "documentation", "qa", "spec-first"]
 }

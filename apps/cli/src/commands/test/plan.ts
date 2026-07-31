@@ -24,6 +24,7 @@ import {
   loadTestModelContext,
   probeEnvironment,
 } from "./shared.js";
+import { resolveNavigationGraph } from "./navigation.js";
 
 export interface TestPlanOptions {
   feature?: string;
@@ -40,6 +41,18 @@ export interface TestPlanResult {
     shards: number;
     testability_issues: number;
   };
+  /** Static locator reconciliation summary (§13). */
+  reconcile: {
+    checked: number;
+    matched: number;
+    missing: number;
+    unresolvable: number;
+    skipped: boolean;
+  };
+  /** Features no confident navigation path reaches (no cases generated). */
+  unreachableFeatures: string[];
+  /** State buckets folded back because the per-feature cap was exceeded. */
+  mergedBuckets: string[];
   approved: boolean;
 }
 
@@ -98,31 +111,66 @@ export async function runTestPlan(
     ? hashContent(await readFile(modelStatePath, "utf8"))
     : undefined;
 
-  const planId = await nextPlanId(projectRoot);
-  const plan = buildTestPlan({
-    planId,
+  // Navigation graph: model-derived, overlaid with the authored file when one
+  // exists. Hashed into the plan inputs so an approval cannot outlive it.
+  const navigation = await resolveNavigationGraph(
+    projectRoot,
+    testConfig.navigation.graph,
     model,
-    config: testConfig,
-    level,
-    featureFilter,
-    inputs: {
-      config_version: 1,
-      project_model_hash: projectModelHash,
-      design_map_hash: designMapHash,
+  );
+  const navigationGraphHash = navigation.raw
+    ? hashContent(navigation.raw)
+    : undefined;
+
+  const planId = await nextPlanId(projectRoot);
+  const { plan, reconcile, unreachableFeatures, mergedBuckets } = buildTestPlan(
+    {
+      ...(testConfig.navigation.enabled
+        ? { navigation: navigation.graph }
+        : {}),
+      planId,
+      model,
+      config: testConfig,
+      level,
+      featureFilter,
+      inputs: {
+        config_version: 1,
+        project_model_hash: projectModelHash,
+        design_map_hash: designMapHash,
+        navigation_graph_hash: navigationGraphHash,
+      },
+      environment: {
+        hasUiTestTarget: env.hasUiTestTarget,
+        hasAccessibilityIdentifiers: env.hasAccessibilityIdentifiers,
+        figmaFrameCount,
+        existingTestCount,
+      },
     },
-    environment: {
-      hasUiTestTarget: env.hasUiTestTarget,
-      hasAccessibilityIdentifiers: env.hasAccessibilityIdentifiers,
-      figmaFrameCount,
-      existingTestCount,
-    },
-  });
+  );
 
   if (plan.test_cases.length === 0) {
     throw new ValidationError(
       featureFilter.length > 0
         ? `No features matched filter [${featureFilter.join(", ")}]. Known features: ${model.features.map((f) => f.id).join(", ") || "(none)"}.`
         : "No features detected in the Project Model; run `xforge docs` first.",
+    );
+  }
+
+  const missingLocators = reconcile.deviations.filter(
+    (d) => d.kind === "missing",
+  );
+  const unresolvableLocators = reconcile.deviations.filter(
+    (d) => d.kind === "unresolvable",
+  );
+
+  // Refuse to emit a plan whose locators provably do not exist, when the
+  // project asked for that (§13). Off by default so an upgrade never blocks.
+  if (testConfig.planning.fail_on_deviation && missingLocators.length > 0) {
+    const locators = [...new Set(missingLocators.map((d) => d.locator))].sort();
+    throw new ValidationError(
+      `DEVIATION: ${locators.length} locator(s) are not declared in source: ${locators.join(", ")}. ` +
+        "Add the missing accessibilityIdentifier values, or set planning.fail_on_deviation: false to plan anyway.",
+      { details: { locators, cases: missingLocators.map((d) => d.case_id) } },
     );
   }
 
@@ -156,6 +204,15 @@ export async function runTestPlan(
       shards: plan.stats.shards,
       testability_issues: plan.testability_issues.length,
     },
+    reconcile: {
+      checked: reconcile.checked,
+      matched: reconcile.matched,
+      missing: missingLocators.length,
+      unresolvable: unresolvableLocators.length,
+      skipped: reconcile.skipped,
+    },
+    unreachableFeatures,
+    mergedBuckets,
     approved: false,
   };
 
@@ -165,9 +222,34 @@ export async function runTestPlan(
       `\n  Cases:              ${result.stats.total_cases}\n` +
         `  Suites:             ${result.stats.suites}\n` +
         `  Simulator shards:   ${result.stats.shards}\n` +
-        `  Testability issues: ${result.stats.testability_issues}\n` +
-        `\n  Plan: ${planFilePath(projectRoot, planId, "planMarkdown")}\n` +
-        `\n  Review, then approve with:\n    xforge test approve ${planId}\n`,
+        `  Testability issues: ${result.stats.testability_issues}\n`,
+    );
+    if (result.reconcile.skipped) {
+      process.stderr.write(
+        "  Locators:           not checked (no accessibility identifiers in the model)\n",
+      );
+    } else {
+      process.stderr.write(
+        `  Locators:           ${result.reconcile.matched}/${result.reconcile.checked} matched` +
+          `${result.reconcile.missing > 0 ? `, ${result.reconcile.missing} MISSING` : ""}` +
+          `${result.reconcile.unresolvable > 0 ? `, ${result.reconcile.unresolvable} unresolvable` : ""}\n`,
+      );
+    }
+    if (result.unreachableFeatures.length > 0) {
+      process.stderr.write(
+        `  Unreachable:        ${result.unreachableFeatures.join(", ")}` +
+          " (no cases generated — see `xforge test navigation`)\n",
+      );
+    }
+    if (result.mergedBuckets.length > 0) {
+      process.stderr.write(
+        `  Merged buckets:     ${result.mergedBuckets.length}` +
+          " (state.max_buckets_per_feature exceeded)\n",
+      );
+    }
+    process.stderr.write(
+      `\n  Plan: ${planFilePath(projectRoot, planId, "planMarkdown")}\n` +
+        `\n  Next:\n    xforge test generate ${planId}\n    xforge test approve ${planId}\n`,
     );
   });
   return result;

@@ -40,6 +40,31 @@
     "preconditions": { "type": "array", "items": { "type": "string" } },
     "steps": { "type": "array" },
     "expected_results": { "type": "array", "items": { "type": "string" } },
+    "assertions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": {
+            "enum": [
+              "exists",
+              "not-exists",
+              "label-equals",
+              "label-contains",
+              "count-equals",
+              "enabled",
+              "selected",
+              "screen-is"
+            ]
+          },
+          "target": { "type": "string" },
+          "value": { "type": ["string", "number"] },
+          "source_text": { "type": "string" }
+        }
+      }
+    },
     "automation": {
       "type": "object",
       "properties": {

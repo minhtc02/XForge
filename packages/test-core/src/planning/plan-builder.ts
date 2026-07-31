@@ -3,9 +3,15 @@ import { parseTestPlan, type TestPlan } from "../models/index.js";
 import type { TestSuite } from "../models/plan.js";
 import type { RunLevel, TestType } from "../models/enums.js";
 import type { TestConfig } from "../config/schema.js";
-import { generateTestCases } from "./case-generator.js";
+import { generateTestCasesWithDiagnostics } from "./case-generator.js";
+import type { NavigationGraph } from "../models/navigation.js";
 import { buildShards } from "./shard.js";
 import { analyzeTestability } from "./testability.js";
+import {
+  blockedCaseIds,
+  reconcileLocators,
+  type ReconcileResult,
+} from "./reconcile.js";
 
 /**
  * Assemble a full {@link TestPlan} from the Canonical Project Model + test
@@ -30,6 +36,18 @@ export interface BuildPlanInput {
     existingTestCount: number;
   };
   createdAt?: string;
+  /** Navigation graph for BFS-derived prefixes (§A). Optional. */
+  navigation?: NavigationGraph;
+}
+
+export interface BuildPlanOutput {
+  plan: TestPlan;
+  /** Static locator reconciliation result (empty/skipped when no inventory). */
+  reconcile: ReconcileResult;
+  /** Features the navigation graph could not reach. */
+  unreachableFeatures: string[];
+  /** State buckets folded back because the per-feature cap was exceeded. */
+  mergedBuckets: string[];
 }
 
 function selectFeatures(model: ProjectModel, filter?: string[]): Feature[] {
@@ -38,14 +56,35 @@ function selectFeatures(model: ProjectModel, filter?: string[]): Feature[] {
   return model.features.filter((f) => wanted.has(f.id.toLowerCase()));
 }
 
-export function buildTestPlan(input: BuildPlanInput): TestPlan {
+export function buildTestPlan(input: BuildPlanInput): BuildPlanOutput {
   const features = selectFeatures(input.model, input.featureFilter);
 
-  const testCases = generateTestCases({
-    model: input.model,
-    features,
-    level: input.level,
+  const { cases: testCases, unreachableFeatures } =
+    generateTestCasesWithDiagnostics({
+      model: input.model,
+      features,
+      level: input.level,
+      ...(input.navigation
+        ? {
+            navigation: {
+              graph: input.navigation,
+              minEdgeConfidence: input.config.navigation.min_edge_confidence,
+              maxPathLength: input.config.navigation.max_path_length,
+            },
+          }
+        : {}),
+    });
+
+  // Reconcile the locators these cases will use against the identifiers the
+  // Project Model actually found in source — before anything is built (§4.1).
+  const reconcile = reconcileLocators({
+    cases: testCases,
+    inventory: input.model.accessibility_identifiers,
   });
+
+  const ungrantablePermissions = input.model.permissions
+    .filter((p) => p.source === "plist" && !p.simctl_grantable)
+    .map((p) => ({ key: p.key, service: p.service }));
 
   // Mark cases blocked when read-only mode + a blocking testability issue.
   const testability = analyzeTestability({
@@ -54,10 +93,21 @@ export function buildTestPlan(input: BuildPlanInput): TestPlan {
     mode: input.config.testability.mode,
     hasUiTestTarget: input.environment.hasUiTestTarget,
     hasAccessibilityIdentifiers: input.environment.hasAccessibilityIdentifiers,
+    cases: testCases,
+    reconcile,
+    ungrantablePermissions,
+    unreachableFeatures,
   });
   const hardBlock = testability.some((t) => t.blocks_automation);
   if (hardBlock) {
     for (const c of testCases) c.automation.blocked = true;
+  } else {
+    // Even outside read-only mode, a case whose locator does not exist cannot
+    // be automated as-is; block just those rather than the whole plan.
+    const blocked = new Set(blockedCaseIds(reconcile));
+    for (const c of testCases) {
+      if (blocked.has(c.id)) c.automation.blocked = true;
+    }
   }
 
   const suites: TestSuite[] = features.map((f) => ({
@@ -67,9 +117,10 @@ export function buildTestPlan(input: BuildPlanInput): TestPlan {
     case_ids: testCases.filter((c) => c.feature === f.id).map((c) => c.id),
   }));
 
-  const { shards, estimatedMinutes } = buildShards(
+  const { shards, estimatedMinutes, mergedBuckets } = buildShards(
     testCases,
     input.config.devices,
+    { maxBucketsPerFeature: input.config.state.max_buckets_per_feature },
   );
 
   const byType: Record<string, number> = {};
@@ -129,7 +180,12 @@ export function buildTestPlan(input: BuildPlanInput): TestPlan {
   };
 
   // Validate before returning so callers always get a schema-valid plan.
-  return parseTestPlan(plan);
+  return {
+    plan: parseTestPlan(plan),
+    reconcile,
+    unreachableFeatures,
+    mergedBuckets,
+  };
 }
 
 /** Generate a plan id like XFPLAN-20260729-001 from a date + sequence. */

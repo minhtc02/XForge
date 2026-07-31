@@ -50,7 +50,7 @@ function plan() {
       existingTestCount: 0,
     },
     createdAt: "2026-07-29T00:00:00Z",
-  });
+  }).plan;
 }
 
 describe("orchestrateRun", () => {

@@ -44,6 +44,83 @@ export const TestStep = z.object({
 });
 export type TestStep = z.infer<typeof TestStep>;
 
+/** What an assertion checks. Each kind maps to a concrete XCTAssert call. */
+export const AssertionKind = z.enum([
+  "exists",
+  "not-exists",
+  "label-equals",
+  "label-contains",
+  "count-equals",
+  "enabled",
+  "selected",
+  "screen-is",
+]);
+export type AssertionKind = z.infer<typeof AssertionKind>;
+
+/**
+ * A machine-checkable expectation (§14, "exit-0 trap").
+ *
+ * `expected_results` are human sentences; an {@link Assertion} is the part a
+ * generated test can actually verify. Every assertion keeps `source_text` so a
+ * failure can be traced back to the expectation it came from.
+ */
+export const Assertion = z.object({
+  id: z.string().min(1),
+  kind: AssertionKind,
+  /** Accessibility identifier of the element under test. */
+  target: z.string().optional(),
+  value: z.union([z.string(), z.number()]).optional(),
+  /** The `expected_results` sentence this assertion encodes. */
+  source_text: z.string().optional(),
+});
+export type Assertion = z.infer<typeof Assertion>;
+
+/**
+ * OS-level state a case needs before it runs (optimization plan §B).
+ *
+ * This is a *precondition*, deliberately not a {@link TestStep}: `simctl` runs
+ * in the host process, outside the test bundle, so it cannot be interleaved
+ * between cases within one `xcodebuild` invocation. Cases sharing a bucket are
+ * sharded together and the state is applied once, before that shard runs.
+ */
+export const StateBucket = z.object({
+  /** Uninstall + reinstall the app — the only true first-run (FTU) state. */
+  fresh_install: z.boolean().default(false),
+  /** `simctl privacy reset all` before granting anything. */
+  reset_permissions: z.boolean().default(false),
+  /** Services to pre-grant. Only simctl-supported services are valid. */
+  grant_permissions: z.array(z.string()).default([]),
+  revoke_permissions: z.array(z.string()).default([]),
+  /** URL to open; delivery depends on `state.deep_link_mode`. */
+  deep_link: z.string().optional(),
+  /** Filename of an `.apns` payload to send with `simctl push`. */
+  push_payload: z.string().optional(),
+  appearance: z.enum(["light", "dark"]).optional(),
+  /** Dynamic Type size, e.g. `accessibility-extra-large`. */
+  content_size: z.string().optional(),
+});
+export type StateBucket = z.infer<typeof StateBucket>;
+
+/** Stable key for grouping cases that share a state (used for sharding). */
+export function stateBucketKey(bucket?: StateBucket): string {
+  if (!bucket) return "default";
+  const parts = [
+    bucket.fresh_install ? "fresh" : "",
+    bucket.reset_permissions ? "reset" : "",
+    bucket.grant_permissions.length > 0
+      ? `grant:${[...bucket.grant_permissions].sort().join("+")}`
+      : "",
+    bucket.revoke_permissions.length > 0
+      ? `revoke:${[...bucket.revoke_permissions].sort().join("+")}`
+      : "",
+    bucket.deep_link ? `link:${bucket.deep_link}` : "",
+    bucket.push_payload ? `push:${bucket.push_payload}` : "",
+    bucket.appearance ? `ui:${bucket.appearance}` : "",
+    bucket.content_size ? `size:${bucket.content_size}` : "",
+  ].filter((p) => p.length > 0);
+  return parts.length > 0 ? parts.join("|") : "default";
+}
+
 export const TestData = z.object({
   key: z.string().min(1),
   value: z.string(),
@@ -79,8 +156,15 @@ export const TestCase = z.object({
   code_references: z.array(CodeReference).default([]),
   design_references: z.array(DesignReference).default([]),
   preconditions: z.array(z.string()).default([]),
+  /** OS-level state this case needs; drives sharding, not step order. */
+  state: StateBucket.optional(),
   steps: z.array(TestStep).default([]),
   expected_results: z.array(z.string()).default([]),
+  /**
+   * Machine-checkable form of `expected_results`. A case with expectations but
+   * no assertions cannot fail on behaviour — the testability analyzer flags it.
+   */
+  assertions: z.array(Assertion).default([]),
   automation: AutomationStrategy,
   environment: TestEnvironment.optional(),
   confidence: Confidence.default(0.5),

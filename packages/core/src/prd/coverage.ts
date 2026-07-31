@@ -28,8 +28,43 @@ export interface CoverageResult {
   gaps: Gap[];
 }
 
+export interface CoverageOptions {
+  /**
+   * Feature ids mentioned by hand-written documentation. Features outside this
+   * set produce the fourth §12 report ("implemented but undocumented"). When
+   * omitted the report is skipped entirely rather than reported as empty — an
+   * empty report would falsely claim everything is documented.
+   */
+  documentedFeatures?: ReadonlySet<string>;
+}
+
 function featureHasTests(feature: Feature): boolean {
   return feature.evidence.some((e) => e.kind === "test");
+}
+
+/**
+ * Which features an existing document mentions, by id or display name. Used for
+ * the "implemented but undocumented" report — generated output must be excluded
+ * by the caller, otherwise the check would satisfy itself.
+ */
+export function detectDocumentedFeatures(
+  features: Feature[],
+  documents: Array<{ path: string; content: string }>,
+): Set<string> {
+  const documented = new Set<string>();
+  for (const feature of features) {
+    const needles = [feature.id, feature.name, feature.name.replace(/ /g, "")]
+      .filter((n) => n.length >= 3)
+      .map((n) => n.toLowerCase());
+    for (const doc of documents) {
+      const haystack = doc.content.toLowerCase();
+      if (needles.some((n) => haystack.includes(n))) {
+        documented.add(feature.id);
+        break;
+      }
+    }
+  }
+  return documented;
 }
 
 /**
@@ -39,6 +74,7 @@ function featureHasTests(feature: Feature): boolean {
 export function analyzeCoverage(
   requirements: Requirement[],
   features: Feature[],
+  options: CoverageOptions = {},
 ): CoverageResult {
   const featureById = new Map(features.map((f) => [f.id, f]));
   const matrix: CoverageRow[] = [];
@@ -100,6 +136,20 @@ export function analyzeCoverage(
         status: "IMPLEMENTED",
         kind: "implemented-not-in-prd",
         description: `Feature "${feature.id}" is implemented but not referenced by any PRD requirement.`,
+      });
+    }
+  }
+
+  // §12: implemented but undocumented — only when we actually inspected the
+  // project's hand-written docs, so the report is never a false empty.
+  if (options.documentedFeatures) {
+    for (const feature of features) {
+      if (options.documentedFeatures.has(feature.id)) continue;
+      gaps.push({
+        feature: feature.id,
+        status: "IMPLEMENTED",
+        kind: "implemented-not-documented",
+        description: `Feature "${feature.id}" is implemented but no hand-written document mentions it.`,
       });
     }
   }

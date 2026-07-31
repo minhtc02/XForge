@@ -7,6 +7,8 @@ struct AlarmView: View {
   var body: some View {
     List(viewModel.alarms) { alarm in
       Text(alarm.label)
+        .accessibilityIdentifier("alarm-row-\(alarm.id)")
     }
+    .accessibilityIdentifier("alarm-list")
   }
 }

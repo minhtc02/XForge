@@ -205,6 +205,8 @@ function buildFeature(
     entry_points: entryPointsFor(files),
     source_files: sourceFiles,
     requirements: [],
+    // Populated by the model builder once every feature's files are known.
+    frameworks: [],
     evidence: [
       ...files.map((f) => ({
         file: f.path,

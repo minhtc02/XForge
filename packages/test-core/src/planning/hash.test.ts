@@ -43,7 +43,7 @@ function samplePlan(seed = "alarm") {
       existingTestCount: 0,
     },
     createdAt: "2026-07-29T00:00:00.000Z",
-  });
+  }).plan;
 }
 
 describe("hashPlan", () => {

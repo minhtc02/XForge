@@ -11,6 +11,8 @@ import { runInspect, type InspectTarget } from "./commands/inspect.js";
 import { runTestDoctor } from "./commands/test/doctor.js";
 import { runTestPlan } from "./commands/test/plan.js";
 import { runTestApprove } from "./commands/test/approve.js";
+import { runTestGenerate } from "./commands/test/generate.js";
+import { runTestNavigation } from "./commands/test/navigation.js";
 import { runTestRun } from "./commands/test/run.js";
 import {
   runTestBugs,
@@ -210,6 +212,35 @@ test
   .action(async (opts, cmd: Command) => {
     await run(
       (ctx) => runTestPlan(ctx, { feature: opts.feature, level: opts.level }),
+      cmd,
+    );
+  });
+
+test
+  .command("navigation")
+  .description("Inspect (or scaffold) the navigation graph used for BFS paths")
+  .option("--init", "scaffold navigation.yaml from the Project Model", false)
+  .option("--force", "overwrite an existing navigation.yaml", false)
+  .action(async (opts, cmd: Command) => {
+    await run(
+      (ctx) => runTestNavigation(ctx, { init: opts.init, force: opts.force }),
+      cmd,
+    );
+  });
+
+test
+  .command("generate")
+  .description("Generate XCUITest sources for a plan (writes Swift, no build)")
+  .argument("<plan-id>", "the plan id, e.g. XFPLAN-20260729-001")
+  .option("--probe", "also emit the accessibility-tree probe class", false)
+  .option("--force", "overwrite existing generated sources", false)
+  .action(async (planId: string, opts, cmd: Command) => {
+    await run(
+      (ctx) =>
+        runTestGenerate(ctx, planId, {
+          probe: opts.probe,
+          force: opts.force,
+        }),
       cmd,
     );
   });

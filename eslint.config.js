@@ -8,6 +8,8 @@ export default [
   {
     ignores: [
       "**/dist/**",
+      // Generated single-file CLI bundle — not hand-written source.
+      "apps/cli/bundle/**",
       "**/node_modules/**",
       "**/*.d.ts",
       "test-fixtures/**",
@@ -27,6 +29,7 @@ export default [
         process: "readonly",
         console: "readonly",
         URL: "readonly",
+        Buffer: "readonly",
         structuredClone: "readonly",
       },
     },
@@ -49,11 +52,22 @@ export default [
     },
   },
   {
+    // Build scripts run under Node with full access to its globals.
+    files: ["**/scripts/*.mjs"],
+    languageOptions: {
+      globals: {
+        process: "readonly",
+        console: "readonly",
+      },
+    },
+  },
+  {
     files: ["**/*.test.ts"],
     languageOptions: {
       globals: {
         process: "readonly",
         console: "readonly",
+        Buffer: "readonly",
         structuredClone: "readonly",
       },
     },

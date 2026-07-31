@@ -24,6 +24,22 @@
     "shard_id": { "type": "string" },
     "duration_ms": { "type": "number" },
     "message": { "type": "string" },
-    "evidence": { "type": "array" }
+    "normalized_error": { "type": "string" },
+    "step_id": { "type": "string" },
+    "retries": { "type": "integer", "minimum": 0 },
+    "evidence": { "type": "array" },
+    "visual_verdict": {
+      "enum": [
+        "PASS",
+        "VISUAL_WARNING",
+        "VISUAL_FAILURE",
+        "DESIGN_REFERENCE_MISSING",
+        "DESIGN_STATE_UNMAPPED"
+      ]
+    },
+    "verdict_source": {
+      "description": "Who decided this status. `xcuitest` is the test process itself; the others escalated a PASS after the fact and may be probabilistic.",
+      "enum": ["xcuitest", "visual-agent", "probe"]
+    }
   }
 }

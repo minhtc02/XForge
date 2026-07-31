@@ -7,6 +7,9 @@ let package = Package(
   products: [
     .library(name: "CuckooAlarm", targets: ["CuckooAlarm"]),
   ],
+  dependencies: [
+    .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
+  ],
   targets: [
     .target(name: "CuckooAlarm", path: "Sources/CuckooAlarm"),
     .testTarget(

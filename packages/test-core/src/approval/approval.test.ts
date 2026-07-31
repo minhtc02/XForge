@@ -47,7 +47,7 @@ function plan() {
       existingTestCount: 3,
     },
     createdAt: "2026-07-29T00:00:00.000Z",
-  });
+  }).plan;
 }
 
 describe("approval manifest", () => {

@@ -61,9 +61,68 @@ export const WorkersSection = z
   })
   .default({});
 
+/** System-level state control via `simctl` (optimization plan §B). */
+export const StateSection = z
+  .object({
+    enabled: z.boolean().default(true),
+    /**
+     * Pre-grant privacy permissions with `simctl privacy grant`. Off by default:
+     * simctl itself warns that bypassing the permission flow can mask bugs (an
+     * app missing its Info.plist usage key would still run).
+     */
+    grant_permissions: z.boolean().default(false),
+    /**
+     * `launch-arg` delivers a deep link through XForgeTestSupport inside one
+     * xcodebuild invocation (per-case, cheap). `os` uses `simctl openurl` for a
+     * real OS handoff, which costs the bucket its own invocation.
+     */
+    deep_link_mode: z.enum(["launch-arg", "os"]).default("launch-arg"),
+    /** Use uninstall+reinstall for first-run cases (the only true FTU state). */
+    fresh_install_for_ftu: z.boolean().default(true),
+    /** Guard against bucket explosion; extra buckets fold back and are reported. */
+    max_buckets_per_feature: z.number().int().positive().default(4),
+  })
+  .default({});
+export type StateSection = z.infer<typeof StateSection>;
+
+/** Navigation graph used to derive shortest paths to a screen (§A). */
+export const NavigationSection = z
+  .object({
+    enabled: z.boolean().default(true),
+    graph: z.string().default("navigation.yaml"),
+    /** Edges below this confidence are never used to build a path. */
+    min_edge_confidence: z.number().min(0).max(1).default(0.6),
+    max_path_length: z.number().int().positive().default(6),
+  })
+  .default({});
+export type NavigationSection = z.infer<typeof NavigationSection>;
+
+export const PlanningSection = z
+  .object({
+    /**
+     * Refuse to write a plan when static reconciliation finds a locator that
+     * does not exist in source. Off by default so an existing project is not
+     * blocked by a tool upgrade; turn it on to enforce testability.
+     */
+    fail_on_deviation: z.boolean().default(false),
+  })
+  .default({});
+export type PlanningSection = z.infer<typeof PlanningSection>;
+
 export const ExecutionSection = z
   .object({
     continue_on_failure: z.boolean().default(true),
+    /**
+     * Render an expectation with no assertion as a hard failure instead of an
+     * explicit skip. Either way it is never a silent pass (§14 exit-0 trap).
+     */
+    strict_expectations: z.boolean().default(false),
+    /**
+     * Run the accessibility probe after build-for-testing, before the shard
+     * matrix. `auto` probes only when static reconciliation left locators
+     * unresolvable — probing when everything already matched buys nothing.
+     */
+    probe_before_run: z.enum(["off", "auto", "always"]).default("auto"),
     retry_infrastructure_failure: z.number().int().nonnegative().default(2),
     retry_assertion_failure: z.number().int().nonnegative().default(0),
     global_timeout_minutes: z.number().int().positive().default(90),
@@ -137,6 +196,9 @@ export const TestConfig = z.object({
     },
   ]),
   workers: WorkersSection,
+  state: StateSection,
+  navigation: NavigationSection,
+  planning: PlanningSection,
   execution: ExecutionSection,
   visual: VisualSection,
   performance: PerformanceSection,

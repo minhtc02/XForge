@@ -2,17 +2,34 @@ import { basename } from "node:path";
 import {
   analyzeCoverage,
   analyzeSwiftFile,
+  collectAccessibilityIdentifiers,
+  collectSymbols,
+  frameworksByFeature,
+  detectAnalyticsEvents,
+  detectApiEndpoints,
+  detectArchitecture,
+  detectDataModels,
+  detectDependencies,
+  detectDocumentedFeatures,
   detectFeatures,
+  detectPermissions,
+  detectPersistenceEntities,
   detectProject,
   detectTechnologies,
+  detectTestCases,
+  featureResolver,
   mergeTechnologies,
   hashContent,
+  parsePlist,
   parsePrdDocument,
   parseProjectModel,
+  plistFacts,
   readTextFileSafe,
   scanFiles,
   type AnalyzedSource,
+  type Assumption,
   type Feature,
+  type PlistFacts,
   type ProjectModel,
   type ProjectPrinciple,
   type Requirement,
@@ -64,6 +81,8 @@ export async function buildProjectModel(
   const fileIndex: Record<string, string> = {};
   const sourceFiles: ProjectModel["source_files"] = [];
   const analyzed: AnalyzedSource[] = [];
+  const documents: Array<{ path: string; content: string }> = [];
+  const plistSources: Array<{ path: string; facts: PlistFacts }> = [];
 
   for (const file of files) {
     if (file.sensitive) continue;
@@ -83,6 +102,22 @@ export async function buildProjectModel(
         loc: analysis.lineCount,
         role: analysis.role,
       });
+      continue;
+    }
+    // Info.plist / entitlements (§6.2) — declared permissions & capabilities.
+    if (/Info\.plist$/.test(file.path) || file.path.endsWith(".entitlements")) {
+      plistSources.push({
+        path: file.path,
+        facts: plistFacts(parsePlist(content)),
+      });
+      continue;
+    }
+    // Hand-written docs, used for the "implemented but undocumented" report.
+    if (
+      file.path.endsWith(".md") &&
+      matchesAny(file.path, config.sources.documents)
+    ) {
+      documents.push({ path: file.path, content });
     }
   }
 
@@ -96,7 +131,9 @@ export async function buildProjectModel(
   const requirements = await parseRequirements(projectRoot, config, files);
 
   // --- Coverage + gap analysis (§12) ---
-  const coverage = analyzeCoverage(requirements, features);
+  const coverage = analyzeCoverage(requirements, features, {
+    documentedFeatures: detectDocumentedFeatures(features, documents),
+  });
 
   // --- Principles from constitution (§3.1) ---
   const principles = await parsePrinciples(projectRoot, config, files);
@@ -114,6 +151,50 @@ export async function buildProjectModel(
       ? basename(detection.xcodeProjects[0]).replace(/\.xcodeproj$/, "")
       : basename(projectRoot));
 
+  // --- iOS entity extraction (§10) ---
+  const featureOf = featureResolver(coverage.features);
+  const frameworks = frameworksByFeature(analyzed, coverage.features);
+  for (const f of coverage.features) {
+    f.frameworks = frameworks.get(f.id) ?? [];
+  }
+  const dataModels = detectDataModels(analyzed, featureOf);
+  const persistenceEntities = detectPersistenceEntities(analyzed, featureOf);
+  const analyticsEvents = detectAnalyticsEvents(analyzed, featureOf);
+  const apiEndpoints = detectApiEndpoints(analyzed, featureOf);
+  const testCases = detectTestCases(analyzed, featureOf);
+  const architecture = detectArchitecture(analyzed, featureOf);
+  const dependencies = detectDependencies({
+    packageSwift: packageSwiftEntry
+      ? await readTextFileSafe(projectRoot, packageSwiftEntry.path)
+      : null,
+    packageSwiftPath: packageSwiftEntry?.path,
+    podfile: podfileEntry
+      ? await readTextFileSafe(projectRoot, podfileEntry.path)
+      : null,
+    podfilePath: podfileEntry?.path,
+  });
+
+  const infoPlist = plistSources.find((p) => /Info\.plist$/.test(p.path));
+  const entitlements = plistSources.find((p) =>
+    p.path.endsWith(".entitlements"),
+  );
+  const permissions = plistSources.flatMap((p) =>
+    detectPermissions(p.facts, p.path, p.path),
+  );
+  const capabilities = [
+    ...new Set(
+      plistSources.flatMap((p) => p.facts.capabilities.map((c) => c.label)),
+    ),
+  ].sort();
+  const backgroundModes = [
+    ...new Set(plistSources.flatMap((p) => p.facts.backgroundModes)),
+  ].sort();
+  const urlSchemes = [
+    ...new Set(plistSources.flatMap((p) => p.facts.urlSchemes)),
+  ].sort();
+  void infoPlist;
+  void entitlements;
+
   const model = parseProjectModel({
     project: {
       id: slugify(
@@ -129,7 +210,30 @@ export async function buildProjectModel(
     features: coverage.features,
     requirements: coverage.requirements,
     source_files: sourceFiles,
+    symbols: collectSymbols(analyzed),
+    architecture,
+    data_models: dataModels,
+    persistence_entities: persistenceEntities,
+    permissions,
+    analytics_events: analyticsEvents,
+    api_endpoints: apiEndpoints,
+    dependencies,
+    test_cases: testCases,
+    accessibility_identifiers: collectAccessibilityIdentifiers(
+      analyzed,
+      featureOf,
+    ),
+    capabilities,
+    background_modes: backgroundModes,
+    url_schemes: urlSchemes,
     gaps: coverage.gaps,
+    assumptions: buildAssumptions({
+      features: coverage.features,
+      requirements: coverage.requirements,
+      dataModels,
+      hasPlist: plistSources.length > 0,
+      hasDocuments: documents.length > 0,
+    }),
     metadata: {
       generator_version: XFORGE_VERSION,
       last_generated_at: new Date().toISOString(),
@@ -137,6 +241,70 @@ export async function buildProjectModel(
   });
 
   return { model, files, fileIndex, matrix: coverage.matrix };
+}
+
+/**
+ * Record what the deterministic pipeline had to infer (§3.3, §10.1). Every
+ * assumption points at something a human can confirm; nothing is invented.
+ */
+function buildAssumptions(input: {
+  features: Feature[];
+  requirements: Requirement[];
+  dataModels: ProjectModel["data_models"];
+  hasPlist: boolean;
+  hasDocuments: boolean;
+}): Assumption[] {
+  const assumptions: Assumption[] = [];
+  let seq = 0;
+  const add = (description: string, confidence: number): void => {
+    seq += 1;
+    assumptions.push({
+      id: `assumption-${String(seq).padStart(3, "0")}`,
+      description,
+      confidence,
+      needs_confirmation: confidence < 0.75,
+    });
+  };
+
+  // Features found only by name-prefix clustering are boundary guesses (§13.3).
+  for (const f of input.features) {
+    if (f.confidence <= 0.7) {
+      add(
+        `Feature "${f.id}" was clustered from file naming, not an explicit config or Features/ folder — confirm its boundary.`,
+        f.confidence,
+      );
+    }
+  }
+
+  // Data models recognized only by file role, not by a conformance.
+  for (const m of input.dataModels) {
+    if (m.conformances.length === 0) {
+      add(
+        `"${m.name}" (${m.file}) is treated as a data model because of its file role, not a Codable/Identifiable conformance.`,
+        0.7,
+      );
+    }
+  }
+
+  if (input.requirements.length === 0) {
+    add(
+      "No PRD requirements were found, so no as-intended behaviour could be compared against the implementation.",
+      0.5,
+    );
+  }
+  if (!input.hasPlist) {
+    add(
+      "No Info.plist or entitlements file was read, so declared permissions and capabilities are unknown.",
+      0.5,
+    );
+  }
+  if (!input.hasDocuments) {
+    add(
+      "No hand-written documents were found, so the 'implemented but undocumented' report treats every feature as undocumented.",
+      0.6,
+    );
+  }
+  return assumptions;
 }
 
 /** Determine which config source list a given path belongs to. */

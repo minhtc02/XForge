@@ -51,6 +51,37 @@ const T = {
     testedFeatures: "Tính năng có test",
     untestedFeatures: "Tính năng chưa có test",
     prerequisites: "Yêu cầu tiên quyết",
+    dataModels: "Mô hình dữ liệu",
+    persistence: "Lưu trữ",
+    migrations: "Migration dữ liệu",
+    api: "API & endpoint",
+    notifications: "Thông báo",
+    analytics: "Analytics",
+    thirdParty: "Dịch vụ bên thứ ba",
+    security: "Bảo mật & quyền riêng tư",
+    accessibility: "Khả năng tiếp cận",
+    performance: "Hiệu năng",
+    permissions: "Quyền",
+    capabilities: "Capability",
+    backgroundModes: "Background mode",
+    urlSchemes: "URL scheme",
+    dependencies: "Thư viện phụ thuộc",
+    summary: "Tóm tắt",
+    productIntention: "Mục tiêu sản phẩm",
+    userFlows: "Luồng người dùng",
+    screens: "Màn hình & điểm vào",
+    mainComponents: "Thành phần chính",
+    businessRules: "Quy tắc nghiệp vụ",
+    networking: "Kết nối mạng",
+    errorHandling: "Xử lý lỗi",
+    edgeCases: "Trường hợp biên",
+    analyticsEvents: "Sự kiện analytics",
+    prdTraceability: "Đối chiếu PRD",
+    knownGaps: "Khoảng trống đã biết",
+    codeReferences: "Tham chiếu mã nguồn",
+    needsLlm: "Chưa phát hiện (cần phân tích ngữ nghĩa)",
+    grantable: "Simulator cấp được",
+    notGrantable: "Simulator KHÔNG cấp được",
   },
   en: {
     overview: "Project Overview",
@@ -79,6 +110,37 @@ const T = {
     testedFeatures: "Tested features",
     untestedFeatures: "Untested features",
     prerequisites: "Prerequisites",
+    dataModels: "Data Models",
+    persistence: "Persistence",
+    migrations: "Migrations",
+    api: "API & Endpoints",
+    notifications: "Notifications",
+    analytics: "Analytics",
+    thirdParty: "Third-party Services",
+    security: "Security & Privacy",
+    accessibility: "Accessibility",
+    performance: "Performance",
+    permissions: "Permissions",
+    capabilities: "Capabilities",
+    backgroundModes: "Background modes",
+    urlSchemes: "URL schemes",
+    dependencies: "Dependencies",
+    summary: "Summary",
+    productIntention: "Product intention",
+    userFlows: "User flows",
+    screens: "Screens and entry points",
+    mainComponents: "Main components",
+    businessRules: "Business rules",
+    networking: "Networking",
+    errorHandling: "Error handling",
+    edgeCases: "Edge cases",
+    analyticsEvents: "Analytics events",
+    prdTraceability: "PRD traceability",
+    knownGaps: "Known gaps",
+    codeReferences: "Code references",
+    needsLlm: "Not detected (requires semantic analysis)",
+    grantable: "Simulator-grantable",
+    notGrantable: "NOT simulator-grantable",
   },
 } as const;
 
@@ -163,7 +225,7 @@ export function generateTechnologyStack(ctx: GenContext): string {
     list.push(tech.name);
     byCategory.set(tech.category, list);
   }
-  const body =
+  const frameworks =
     byCategory.size === 0
       ? tr.notDetected
       : [...byCategory.entries()]
@@ -172,6 +234,19 @@ export function generateTechnologyStack(ctx: GenContext): string {
               `## ${cat}\n\n${names.map((n) => `- ${n}`).join("\n")}`,
           )
           .join("\n\n");
+  const body = [
+    frameworks,
+    "",
+    `## ${tr.dependencies}`,
+    "",
+    bullets(
+      model.dependencies.map(
+        (d) =>
+          `**${d.name}** (${d.manager}${d.requirement ? `, ${d.requirement}` : ""})`,
+      ),
+      tr.notDetected,
+    ),
+  ].join("\n");
   return doc(model, tr.techStack, body);
 }
 
@@ -180,6 +255,19 @@ export function generateArchitecture(ctx: GenContext): string {
   const tr = t(language);
   const body = [
     featureOverviewDiagram(model.project.name, model.features),
+    "",
+    "## Layers",
+    "",
+    model.architecture.length > 0
+      ? model.architecture
+          .map(
+            (c) =>
+              `- **${c.name}** — ${c.file_count} file(s)${c.features.length > 0 ? ` — ${c.features.join(", ")}` : ""}`,
+          )
+          .join("\n")
+      : tr.notDetected,
+    "",
+    `## ${tr.features}`,
     "",
     model.features
       .map((f) => {
@@ -224,50 +312,207 @@ export function generateRepositoryStructure(ctx: GenContext): string {
   return doc(model, tr.repoStructure, body);
 }
 
+/** Frameworks whose use implies a runtime privacy prompt (blueprint §8). */
+const PERMISSION_FRAMEWORKS: Readonly<Record<string, string>> = {
+  CoreLocation: "location",
+  AVFoundation: "camera / microphone",
+  AVKit: "camera / microphone",
+  UserNotifications: "notifications",
+  HealthKit: "health",
+  Contacts: "contacts",
+  ContactsUI: "contacts",
+  EventKit: "calendar / reminders",
+  Photos: "photos",
+  PhotosUI: "photos",
+  Speech: "speech recognition",
+  CoreBluetooth: "bluetooth",
+  CoreMotion: "motion",
+  LocalAuthentication: "biometrics",
+  AppTrackingTransparency: "tracking",
+};
+
+function bullets(items: string[], fallback: string): string {
+  return items.length > 0 ? items.map((i) => `- ${i}`).join("\n") : fallback;
+}
+
 /** A single feature document following the §8 section structure. */
 export function generateFeatureDoc(feature: Feature, ctx: GenContext): string {
   const { model, language } = ctx;
   const tr = t(language);
+  const mine = <T extends { feature?: string }>(rows: T[]): T[] =>
+    rows.filter((r) => r.feature === feature.id);
+
   const reqs = model.requirements.filter((r) =>
     feature.requirements.includes(r.id),
   );
-  const testEvidence = feature.evidence.filter((e) => e.kind === "test");
+  const tests = mine(model.test_cases);
+  const dataModels = mine(model.data_models);
+  const persistence = mine(model.persistence_entities);
+  const endpoints = mine(model.api_endpoints);
+  const events = mine(model.analytics_events);
+  const a11y = mine(model.accessibility_identifiers);
+  const gaps = model.gaps.filter((g) => g.feature === feature.id);
+  const permissionFrameworks = feature.frameworks.filter(
+    (f) => f in PERMISSION_FRAMEWORKS,
+  );
+  const notificationFrameworks = feature.frameworks.filter((f) =>
+    /Notification/i.test(f),
+  );
+  const networkFrameworks = feature.frameworks.filter((f) =>
+    /^(Network|Alamofire|URLSession)$/.test(f),
+  );
+  const byRole = new Map<string, string[]>();
+  for (const path of feature.source_files) {
+    const role = model.source_files.find((s) => s.path === path)?.role ?? "?";
+    byRole.set(role, [...(byRole.get(role) ?? []), path]);
+  }
 
   const sections: Array<[string, string]> = [
+    [tr.summary, feature.summary ?? tr.needsLlm],
+    [
+      tr.productIntention,
+      reqs.length > 0
+        ? bullets(
+            reqs.map((r) => `\`${r.id}\` — ${r.description}`),
+            tr.notDetected,
+          )
+        : tr.notDetected,
+    ],
     [
       tr.status,
       `${feature.status} (${tr.confidence} ${feature.confidence.toFixed(2)})`,
     ],
+    [tr.userFlows, tr.needsLlm],
     [
-      tr.entryPoints,
-      feature.entry_points.length > 0
-        ? feature.entry_points
-            .map((e) => `- \`${e.name}\`${e.file ? ` — \`${e.file}\`` : ""}`)
-            .join("\n")
-        : tr.notDetected,
+      tr.screens,
+      bullets(
+        feature.entry_points.map(
+          (e) => `\`${e.name}\`${e.file ? ` — \`${e.file}\`` : ""}`,
+        ),
+        tr.notDetected,
+      ),
     ],
     [
-      tr.sourceFiles,
-      feature.source_files.length > 0
-        ? feature.source_files.map((f) => `- \`${f}\``).join("\n")
-        : tr.notDetected,
-    ],
-    [
-      tr.requirements,
-      reqs.length > 0
-        ? reqs
+      tr.mainComponents,
+      byRole.size > 0
+        ? [...byRole.entries()]
+            .sort(([a], [b]) => a.localeCompare(b))
             .map(
-              (r) =>
-                `- \`${r.id}\` — ${r.description} (${r.implementation_status})`,
+              ([role, paths]) =>
+                `- **${role}** — ${paths.map((p) => `\`${p}\``).join(", ")}`,
             )
             .join("\n")
         : tr.notDetected,
     ],
+    [tr.businessRules, tr.needsLlm],
+    [
+      tr.dataModels,
+      bullets(
+        dataModels.map(
+          (m) =>
+            `\`${m.name}\` (${m.kind}) — \`${m.file}${m.start_line ? `:${m.start_line}` : ""}\``,
+        ),
+        tr.notDetected,
+      ),
+    ],
+    [
+      tr.persistence,
+      bullets(
+        persistence.map(
+          (p) =>
+            `\`${p.name}\` — ${p.mechanism} — \`${p.file}${p.start_line ? `:${p.start_line}` : ""}\``,
+        ),
+        tr.notDetected,
+      ),
+    ],
+    [
+      tr.networking,
+      bullets(
+        [
+          ...networkFrameworks.map((f) => `\`${f}\``),
+          ...endpoints.map(
+            (e) =>
+              `\`${e.url}\` — \`${e.file}${e.start_line ? `:${e.start_line}` : ""}\``,
+          ),
+        ],
+        tr.notDetected,
+      ),
+    ],
+    [
+      tr.notifications,
+      bullets(
+        notificationFrameworks.map((f) => `\`${f}\``),
+        tr.notDetected,
+      ),
+    ],
+    [
+      tr.permissions,
+      bullets(
+        permissionFrameworks.map(
+          (f) => `\`${f}\` → ${PERMISSION_FRAMEWORKS[f]} (INFERRED)`,
+        ),
+        tr.notDetected,
+      ),
+    ],
+    [tr.errorHandling, tr.needsLlm],
+    [tr.edgeCases, tr.needsLlm],
+    [
+      tr.analyticsEvents,
+      bullets(
+        events.map(
+          (e) =>
+            `\`${e.name}\` — \`${e.file}${e.start_line ? `:${e.start_line}` : ""}\``,
+        ),
+        tr.notDetected,
+      ),
+    ],
+    [
+      tr.accessibility,
+      a11y.length > 0
+        ? `${a11y.filter((i) => !i.dynamic).length} static, ${a11y.filter((i) => i.dynamic).length} dynamic accessibility identifier(s).\n\n` +
+          bullets(
+            a11y
+              .slice(0, 20)
+              .map(
+                (i) =>
+                  `${i.dynamic ? `\`${i.expression}\` (dynamic)` : `\`${i.value}\``} — \`${i.file}${i.start_line ? `:${i.start_line}` : ""}\``,
+              ),
+            tr.notDetected,
+          )
+        : tr.notDetected,
+    ],
     [
       tr.tests,
-      testEvidence.length > 0
-        ? testEvidence.map((e) => `- \`${evidenceRef(e)}\``).join("\n")
+      bullets(
+        tests.map(
+          (c) =>
+            `\`${c.name}\` (${c.kind}) — \`${c.file}${c.start_line ? `:${c.start_line}` : ""}\``,
+        ),
+        tr.notDetected,
+      ),
+    ],
+    [
+      tr.prdTraceability,
+      reqs.length > 0
+        ? bullets(
+            reqs.map((r) => `\`${r.id}\` — ${r.implementation_status}`),
+            tr.notDetected,
+          )
         : tr.notDetected,
+    ],
+    [
+      tr.knownGaps,
+      bullets(
+        gaps.map((g) => g.description),
+        tr.notDetected,
+      ),
+    ],
+    [
+      tr.codeReferences,
+      bullets(
+        feature.source_files.map((f) => `\`${f}\``),
+        tr.notDetected,
+      ),
     ],
   ];
 
@@ -481,6 +726,345 @@ export function generateUndocumentedCode(ctx: GenContext): string {
       ? tr.notDetected
       : orphans.map((p) => `- \`${p}\``).join("\n");
   return doc(model, tr.undocumented, body);
+}
+
+// --- data/ (blueprint §7) ---------------------------------------------------
+
+export function generateDataModelsDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const body =
+    model.data_models.length === 0
+      ? tr.notDetected
+      : model.data_models
+          .map((m) => {
+            const where = `\`${m.file}${m.start_line ? `:${m.start_line}` : ""}\``;
+            const conf =
+              m.conformances.length > 0
+                ? ` — ${m.conformances.join(", ")}`
+                : " — INFERRED (model-role file)";
+            return `- **${m.name}** (${m.kind})${conf} — ${where}${m.feature ? ` — ${m.feature}` : ""}`;
+          })
+          .join("\n");
+  return doc(model, tr.dataModels, body);
+}
+
+export function generatePersistenceDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const mechanisms = model.technologies.filter(
+    (tech) => tech.category === "persistence",
+  );
+  const body = [
+    `## ${tr.techStack}`,
+    "",
+    bullets(
+      mechanisms.map((m) => `**${m.name}**`),
+      tr.notDetected,
+    ),
+    "",
+    `## ${tr.dataModels}`,
+    "",
+    bullets(
+      model.persistence_entities.map(
+        (e) =>
+          `**${e.name}** — ${e.mechanism} — \`${e.file}${e.start_line ? `:${e.start_line}` : ""}\``,
+      ),
+      tr.notDetected,
+    ),
+  ].join("\n");
+  return doc(model, tr.persistence, body);
+}
+
+export function generateMigrationsDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  // Migration artifacts are file-shaped: .xcdatamodeld versions, mapping models,
+  // or a SwiftData `VersionedSchema`. We only report what was actually seen.
+  const modelFiles = model.source_files
+    .map((f) => f.path)
+    .filter((p) => /xcdatamodeld|xcmappingmodel|Migration/i.test(p));
+  const versionedSchemas = model.symbols.filter((s) =>
+    /VersionedSchema|SchemaMigrationPlan|MigrationStage/.test(s.name),
+  );
+  const body = bullets(
+    [
+      ...modelFiles.map((p) => `\`${p}\``),
+      ...versionedSchemas.map((s) => `\`${s.name}\` — \`${s.file}\``),
+    ],
+    tr.notDetected,
+  );
+  return doc(model, tr.migrations, body);
+}
+
+// --- integrations/ (blueprint §7) -------------------------------------------
+
+export function generateApiDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const byHost = new Map<string, typeof model.api_endpoints>();
+  for (const e of model.api_endpoints) {
+    byHost.set(e.host, [...(byHost.get(e.host) ?? []), e]);
+  }
+  const networking = model.technologies.filter(
+    (tech) => tech.category === "networking" || tech.category === "backend",
+  );
+  const body = [
+    `## ${tr.techStack}`,
+    "",
+    bullets(
+      networking.map((n) => `**${n.name}**`),
+      tr.notDetected,
+    ),
+    "",
+    `## ${tr.api}`,
+    "",
+    byHost.size === 0
+      ? tr.notDetected
+      : [...byHost.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(
+            ([host, list]) =>
+              `### ${host}\n\n` +
+              list
+                .map(
+                  (e) =>
+                    `- \`${e.url}\` — \`${e.file}${e.start_line ? `:${e.start_line}` : ""}\``,
+                )
+                .join("\n"),
+          )
+          .join("\n\n"),
+  ].join("\n");
+  return doc(model, tr.api, body);
+}
+
+export function generateNotificationsDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const notifTech = model.technologies.filter(
+    (tech) => tech.category === "notifications",
+  );
+  const pushCapability = model.capabilities.filter((c) =>
+    /Notification/i.test(c),
+  );
+  const body = [
+    `## ${tr.techStack}`,
+    "",
+    bullets(
+      notifTech.map(
+        (n) =>
+          `**${n.name}** — ${n.evidence.map((e) => `\`${e.file}\``).join(", ") || tr.notDetected}`,
+      ),
+      tr.notDetected,
+    ),
+    "",
+    `## ${tr.capabilities}`,
+    "",
+    bullets(
+      pushCapability.map((c) => `**${c}**`),
+      tr.notDetected,
+    ),
+    "",
+    `## ${tr.backgroundModes}`,
+    "",
+    bullets(
+      model.background_modes.map((m) => `\`${m}\``),
+      tr.notDetected,
+    ),
+  ].join("\n");
+  return doc(model, tr.notifications, body);
+}
+
+export function generateAnalyticsDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const byFeature = new Map<string, typeof model.analytics_events>();
+  for (const e of model.analytics_events) {
+    const key = e.feature ?? "—";
+    byFeature.set(key, [...(byFeature.get(key) ?? []), e]);
+  }
+  const body =
+    byFeature.size === 0
+      ? tr.notDetected
+      : [...byFeature.entries()]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(
+            ([feature, list]) =>
+              `## ${feature}\n\n` +
+              list
+                .map(
+                  (e) =>
+                    `- \`${e.name}\` — \`${e.file}${e.start_line ? `:${e.start_line}` : ""}\``,
+                )
+                .join("\n"),
+          )
+          .join("\n\n");
+  return doc(model, tr.analytics, body);
+}
+
+export function generateThirdPartyDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const body = [
+    `## ${tr.dependencies}`,
+    "",
+    bullets(
+      model.dependencies.map(
+        (d) =>
+          `**${d.name}** (${d.manager}${d.requirement ? `, ${d.requirement}` : ""})${d.url ? ` — ${d.url}` : ""}`,
+      ),
+      tr.notDetected,
+    ),
+    "",
+    `## ${tr.techStack}`,
+    "",
+    bullets(
+      model.technologies
+        .filter((tech) => tech.category === "backend")
+        .map((tech) => `**${tech.name}**`),
+      tr.notDetected,
+    ),
+  ].join("\n");
+  return doc(model, tr.thirdParty, body);
+}
+
+// --- quality/ (blueprint §7) ------------------------------------------------
+
+export function generateSecurityDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const grantable = model.permissions.filter((p) => p.simctl_grantable);
+  const notGrantable = model.permissions.filter(
+    (p) => !p.simctl_grantable && p.source === "plist",
+  );
+  const entitlements = model.permissions.filter(
+    (p) => p.source === "entitlement",
+  );
+  const body = [
+    `## ${tr.permissions}`,
+    "",
+    model.permissions.length === 0
+      ? tr.notDetected
+      : [
+          `### ${tr.grantable}`,
+          "",
+          bullets(
+            grantable.map(
+              (p) =>
+                `\`${p.key}\` (${p.service})${p.purpose ? ` — "${p.purpose}"` : ""}`,
+            ),
+            tr.notDetected,
+          ),
+          "",
+          `### ${tr.notGrantable}`,
+          "",
+          bullets(
+            notGrantable.map(
+              (p) =>
+                `\`${p.key}\` (${p.service})${p.purpose ? ` — "${p.purpose}"` : ""}`,
+            ),
+            tr.notDetected,
+          ),
+        ].join("\n"),
+    "",
+    `## ${tr.capabilities}`,
+    "",
+    bullets(
+      entitlements.map((p) => `**${p.service}** — \`${p.key}\``),
+      tr.notDetected,
+    ),
+    "",
+    `## ${tr.urlSchemes}`,
+    "",
+    bullets(
+      model.url_schemes.map((s) => `\`${s}://\``),
+      tr.notDetected,
+    ),
+  ].join("\n");
+  return doc(model, tr.security, body);
+}
+
+export function generateAccessibilityDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const ids = model.accessibility_identifiers;
+  const staticIds = ids.filter((i) => !i.dynamic);
+  const dynamicIds = ids.filter((i) => i.dynamic);
+  const viewFiles = model.source_files.filter((f) => f.role === "view");
+  const covered = new Set(ids.map((i) => i.file));
+  const uncovered = viewFiles.filter((f) => !covered.has(f.path));
+
+  const body = [
+    `- ${tr.sourceFiles}: ${viewFiles.length} view file(s)`,
+    `- ${tr.accessibility}: ${staticIds.length} static, ${dynamicIds.length} dynamic identifier(s)`,
+    "",
+    `## ${tr.notDetected} — view files without an accessibility identifier`,
+    "",
+    bullets(
+      uncovered.map((f) => `\`${f.path}\``),
+      tr.notDetected,
+    ),
+    "",
+    "## Identifiers",
+    "",
+    bullets(
+      staticIds.map(
+        (i) =>
+          `\`${i.value}\` — \`${i.file}${i.start_line ? `:${i.start_line}` : ""}\``,
+      ),
+      tr.notDetected,
+    ),
+    ...(dynamicIds.length > 0
+      ? [
+          "",
+          "## Dynamic (unresolvable statically)",
+          "",
+          bullets(
+            dynamicIds.map(
+              (i) =>
+                `\`${i.expression}\` — \`${i.file}${i.start_line ? `:${i.start_line}` : ""}\``,
+            ),
+            tr.notDetected,
+          ),
+        ]
+      : []),
+  ].join("\n");
+  return doc(model, tr.accessibility, body);
+}
+
+export function generatePerformanceDoc(ctx: GenContext): string {
+  const { model, language } = ctx;
+  const tr = t(language);
+  const perfTests = model.test_cases.filter((c) =>
+    /performance|measure|benchmark/i.test(c.name),
+  );
+  const largest = [...model.source_files]
+    .filter((f) => typeof f.loc === "number")
+    .sort((a, b) => (b.loc ?? 0) - (a.loc ?? 0))
+    .slice(0, 10);
+  const body = [
+    `## ${tr.tests}`,
+    "",
+    bullets(
+      perfTests.map((c) => `\`${c.name}\` — \`${c.file}\``),
+      tr.notDetected,
+    ),
+    "",
+    `## ${tr.sourceFiles}`,
+    "",
+    bullets(
+      largest.map((f) => `\`${f.path}\` — ${f.loc} LOC`),
+      tr.notDetected,
+    ),
+    "",
+    `## ${tr.backgroundModes}`,
+    "",
+    bullets(
+      model.background_modes.map((m) => `\`${m}\``),
+      tr.notDetected,
+    ),
+  ].join("\n");
+  return doc(model, tr.performance, body);
 }
 
 export function generateAssumptions(ctx: GenContext): string {

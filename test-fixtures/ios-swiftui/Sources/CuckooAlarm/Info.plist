@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.example.cuckooalarm</string>
+	<key>CFBundleName</key>
+	<string>CuckooAlarm</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record a custom alarm sound.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Attach a photo to a wake-up challenge.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Show local sunrise time for smart alarms.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+		<string>remote-notification</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.example.cuckooalarm</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>cuckoo</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

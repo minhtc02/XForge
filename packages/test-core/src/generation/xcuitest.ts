@@ -1,4 +1,4 @@
-import type { TestCase, TestStep } from "../models/test-case.js";
+import type { Assertion, TestCase, TestStep } from "../models/test-case.js";
 
 /**
  * XCUITest source generation (blueprint §14, Phase 3, master prompt §3).
@@ -8,6 +8,11 @@ import type { TestCase, TestStep } from "../models/test-case.js";
  * accessibility identifiers as locators (never coordinate tapping, §4.2). It
  * emits `--xforge-test` launch arguments so the app can enable test-support
  * (§14) without any production behavior change.
+ *
+ * Every interaction asserts before acting and every expectation becomes either a
+ * real `XCTAssert` or an explicit `XCTSkip`/`XCTFail`. A generated test that
+ * cannot fail is worse than no test at all: `xcodebuild` would exit 0 and the
+ * run would be reported as a pass (the "exit-0 trap").
  */
 
 export interface XcuiGenOptions {
@@ -15,6 +20,125 @@ export interface XcuiGenOptions {
   className: string;
   /** App/module under test (for the file header comment only). */
   module?: string;
+  /**
+   * How to render an expectation with no matching assertion. `skip` (default)
+   * records it as an explicit XCTSkip so the result is visibly unverified;
+   * `fail` makes it a hard failure. Never a silent comment.
+   */
+  unverifiedExpectations?: "skip" | "fail";
+  /**
+   * Privacy services the simulator cannot pre-grant (camera, notifications,
+   * ...). Each gets an `addUIInterruptionMonitor` so the system alert is
+   * dismissed deterministically instead of stalling the run (§4.1).
+   */
+  permissionAlerts?: string[];
+}
+
+const DEFAULT_TIMEOUT = 5;
+
+function swiftString(value: string): string {
+  return JSON.stringify(value);
+}
+
+/**
+ * Alert buttons to accept, per service. `simctl privacy` cannot grant these,
+ * so the only deterministic option is to answer the alert from inside the test.
+ */
+const ALERT_ACCEPT_BUTTONS: Readonly<Record<string, string[]>> = {
+  camera: ["OK", "Allow"],
+  notifications: ["Allow", "Allow While Using App"],
+  "health-share": ["Allow", "Turn On All"],
+  "health-update": ["Allow", "Turn On All"],
+  bluetooth: ["OK", "Allow"],
+  "face-id": ["OK"],
+  "local-network": ["OK", "Allow"],
+  "user-tracking": ["Allow"],
+};
+
+/** Render interruption monitors for permissions a simulator cannot grant. */
+export function renderPermissionMonitors(services: string[]): string[] {
+  if (services.length === 0) return [];
+  const buttons = [
+    ...new Set(
+      services.flatMap((s) => ALERT_ACCEPT_BUTTONS[s] ?? ["OK", "Allow"]),
+    ),
+  ];
+  return [
+    `// Permissions simctl cannot pre-grant: ${services.join(", ")}`,
+    `let xforgeAlertButtons = [${buttons.map(swiftString).join(", ")}]`,
+    'addUIInterruptionMonitor(withDescription: "XForge system alert") { alert in',
+    "    for title in xforgeAlertButtons {",
+    "        let button = alert.buttons[title]",
+    "        if button.exists {",
+    "            button.tap()",
+    "            return true",
+    "        }",
+    "    }",
+    "    return false",
+    "}",
+  ];
+}
+
+/** The XCUIElementQuery used to locate an accessibility identifier. */
+function element(identifier: string): string {
+  return `app.descendants(matching: .any)[${swiftString(identifier)}].firstMatch`;
+}
+
+/** Render one assertion as XCUITest Swift. */
+export function renderAssertion(assertion: Assertion): string[] {
+  const target = assertion.target ?? "";
+  const el = element(target);
+  const note = assertion.source_text
+    ? [`// EXPECT: ${assertion.source_text}`]
+    : [];
+  const message = swiftString(
+    assertion.source_text ?? `${assertion.kind} ${target}`,
+  );
+
+  switch (assertion.kind) {
+    case "exists":
+    case "screen-is":
+      return [
+        ...note,
+        `XCTAssertTrue(${el}.waitForExistence(timeout: ${DEFAULT_TIMEOUT}), ${message})`,
+      ];
+    case "not-exists":
+      return [...note, `XCTAssertFalse(${el}.exists, ${message})`];
+    case "label-equals":
+      return [
+        ...note,
+        `XCTAssertTrue(${el}.waitForExistence(timeout: ${DEFAULT_TIMEOUT}), ${message})`,
+        `XCTAssertEqual(${el}.label, ${swiftString(String(assertion.value ?? ""))}, ${message})`,
+      ];
+    case "label-contains":
+      return [
+        ...note,
+        `XCTAssertTrue(${el}.waitForExistence(timeout: ${DEFAULT_TIMEOUT}), ${message})`,
+        `XCTAssertTrue(${el}.label.contains(${swiftString(String(assertion.value ?? ""))}), ${message})`,
+      ];
+    case "count-equals":
+      return [
+        ...note,
+        `XCTAssertEqual(app.descendants(matching: .any).matching(identifier: ${swiftString(target)}).count, ${Number(assertion.value ?? 0)}, ${message})`,
+      ];
+    case "enabled":
+      return [
+        ...note,
+        `XCTAssertTrue(${el}.waitForExistence(timeout: ${DEFAULT_TIMEOUT}), ${message})`,
+        `XCTAssertTrue(${el}.isEnabled, ${message})`,
+      ];
+    case "selected":
+      return [
+        ...note,
+        `XCTAssertTrue(${el}.waitForExistence(timeout: ${DEFAULT_TIMEOUT}), ${message})`,
+        `XCTAssertTrue(${el}.isSelected, ${message})`,
+      ];
+    default: {
+      // Exhaustiveness guard: an unhandled kind must fail loudly, not silently.
+      const never: never = assertion.kind;
+      return [`XCTFail("unhandled assertion kind: ${String(never)}")`];
+    }
+  }
 }
 
 function swiftIdentifier(id: string): string {
@@ -24,34 +148,43 @@ function swiftIdentifier(id: string): string {
 
 /** Map one abstract step to XCUITest Swift lines. */
 export function renderStep(step: TestStep): string[] {
-  const target = step.target ? swiftIdentifier(step.target) : undefined;
-  const el = target ? `app.otherElements["${step.target}"]` : "app";
+  const target = step.target ?? "";
+  const el = element(target);
+  const located = (what: string): string[] => [
+    `XCTAssertTrue(${el}.waitForExistence(timeout: ${DEFAULT_TIMEOUT}), ${swiftString(`${what} not found: ${target}`)})`,
+    `XCTAssertTrue(${el}.isHittable, ${swiftString(`${what} not hittable: ${target}`)})`,
+  ];
+
   switch (step.action) {
     case "launch-app":
       return ['app.launchArguments = ["--xforge-test"]', "app.launch()"];
     case "relaunch-app":
       return ["app.terminate()", "app.launch()"];
     case "open":
-      return [
-        `XCTAssertTrue(app.descendants(matching: .any)["${step.target ?? ""}"].waitForExistence(timeout: 5))`,
-        `app.buttons["${step.target ?? ""}"].firstMatch.tap()`,
-      ];
+      return [...located("screen entry"), `${el}.tap()`];
     case "tap":
-      return [`app.buttons["${step.target ?? ""}"].firstMatch.tap()`];
+      return [...located("tap target"), `${el}.tap()`];
     case "type":
       return [
-        `app.textFields["${step.target ?? ""}"].firstMatch.typeText(${JSON.stringify(String(step.value ?? ""))})`,
+        ...located("text field"),
+        `${el}.tap()`,
+        `${el}.typeText(${swiftString(String(step.value ?? ""))})`,
       ];
     case "set-time":
-      return [`// set-time ${String(step.value ?? "")} via test-support seed`];
+      return [
+        `// set-time ${String(step.value ?? "")} via test-support seed`,
+        `XCTSkipIf(true, ${swiftString(`set-time is not automatable without a test-support hook (step ${step.id})`)})`,
+      ];
     case "select-weekdays":
       return [
         `// select weekdays ${Array.isArray(step.value) ? step.value.join(",") : String(step.value ?? "")}`,
+        `XCTSkipIf(true, ${swiftString(`select-weekdays needs a mapped control (step ${step.id})`)})`,
       ];
     case "capture-screenshot":
       return [
         "let shot = app.screenshot()",
-        "let att = XCTAttachment(screenshot: shot)",
+        `let att = XCTAttachment(screenshot: shot)`,
+        `att.name = ${swiftString(step.target ?? step.id)}`,
         "att.lifetime = .keepAlways",
         "add(att)",
       ];
@@ -64,13 +197,19 @@ export function renderStep(step: TestStep): string[] {
         "}",
       ];
     case "create-item":
-      return [`// create-item via test-support seed or UI flow`];
+      return [
+        "// create-item via test-support seed or UI flow",
+        `XCTSkipIf(true, ${swiftString(`create-item has no mapped UI flow (step ${step.id})`)})`,
+      ];
     default:
-      return [`// unmapped action: ${step.action}${target ? ` (${el})` : ""}`];
+      // An unmapped action must never look like a silent pass.
+      return [
+        `XCTFail(${swiftString(`unmapped action "${step.action}" (step ${step.id}) — XForge cannot verify this`)})`,
+      ];
   }
 }
 
-function renderCaseMethod(testCase: TestCase): string {
+function renderCaseMethod(testCase: TestCase, options: XcuiGenOptions): string {
   const method = `test_${swiftIdentifier(testCase.id)}`;
   const bodyLines: string[] = [];
   bodyLines.push(`// ${testCase.title}`);
@@ -84,9 +223,25 @@ function renderCaseMethod(testCase: TestCase): string {
   for (const step of testCase.steps) {
     for (const line of renderStep(step)) bodyLines.push(line);
   }
-  for (const expected of testCase.expected_results) {
-    bodyLines.push(`// EXPECT: ${expected}`);
+  for (const assertion of testCase.assertions) {
+    for (const line of renderAssertion(assertion)) bodyLines.push(line);
   }
+
+  // Expectations with no assertion are reported, never dropped into a comment.
+  const asserted = new Set(
+    testCase.assertions
+      .map((a) => a.source_text)
+      .filter((t): t is string => Boolean(t)),
+  );
+  const unverified = testCase.expected_results.filter((e) => !asserted.has(e));
+  const mode = options.unverifiedExpectations ?? "skip";
+  for (const expected of unverified) {
+    const message = swiftString(`unverified expectation: ${expected}`);
+    bodyLines.push(
+      mode === "fail" ? `XCTFail(${message})` : `XCTSkipIf(true, ${message})`,
+    );
+  }
+
   const indented = bodyLines.map((l) => `        ${l}`).join("\n");
   return `    func ${method}() throws {\n${indented}\n    }`;
 }
@@ -96,6 +251,7 @@ export function generateXcuiTestFile(
   cases: TestCase[],
   options: XcuiGenOptions,
 ): string {
+  const monitors = renderPermissionMonitors(options.permissionAlerts ?? []);
   const header = [
     "// Generated by XForge Test — do not edit by hand.",
     "// This file is test-support only and must not change production behavior.",
@@ -105,12 +261,13 @@ export function generateXcuiTestFile(
     `final class ${options.className}: XCTestCase {`,
     "    override func setUpWithError() throws {",
     "        continueAfterFailure = false",
+    ...monitors.map((l) => `        ${l}`),
     "    }",
     "",
   ]
     .filter((l) => l !== "")
     .join("\n");
-  const methods = cases.map(renderCaseMethod).join("\n\n");
+  const methods = cases.map((c) => renderCaseMethod(c, options)).join("\n\n");
   return `${header}\n${methods}\n}\n`;
 }
 

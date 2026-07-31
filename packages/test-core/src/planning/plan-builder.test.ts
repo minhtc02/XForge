@@ -79,7 +79,7 @@ describe("buildTestPlan", () => {
       level: "regression",
       inputs: { config_version: 1 },
       environment: baseEnv,
-    });
+    }).plan;
     expect(plan.test_cases.length).toBeGreaterThan(0);
     expect(plan.suites).toHaveLength(2);
     expect(plan.shards).toHaveLength(2);
@@ -95,7 +95,7 @@ describe("buildTestPlan", () => {
       featureFilter: ["alarm"],
       inputs: { config_version: 1 },
       environment: baseEnv,
-    });
+    }).plan;
     expect(plan.scope).toEqual(["Alarm"]);
     expect(plan.test_cases.every((c) => c.feature === "alarm")).toBe(true);
   });
@@ -108,7 +108,7 @@ describe("buildTestPlan", () => {
       level: "smoke",
       inputs: { config_version: 1 },
       environment: baseEnv,
-    });
+    }).plan;
     const full = buildTestPlan({
       planId: "XFPLAN-2",
       model: alarmModel(),
@@ -116,7 +116,7 @@ describe("buildTestPlan", () => {
       level: "full",
       inputs: { config_version: 1 },
       environment: baseEnv,
-    });
+    }).plan;
     expect(full.test_cases.length).toBeGreaterThan(smoke.test_cases.length);
     expect(Object.keys(full.stats.by_type).length).toBeGreaterThan(
       Object.keys(smoke.stats.by_type).length,
@@ -133,7 +133,7 @@ describe("buildTestPlan", () => {
       level: "smoke",
       inputs: { config_version: 1 },
       environment: { ...baseEnv, hasUiTestTarget: false },
-    });
+    }).plan;
     expect(plan.test_cases.every((c) => c.automation.blocked)).toBe(true);
   });
 
@@ -147,7 +147,7 @@ describe("buildTestPlan", () => {
       level: "smoke",
       inputs: { config_version: 1 },
       environment: { ...baseEnv, figmaFrameCount: 3 },
-    });
+    }).plan;
     expect(withFrames.permissions.readFigmaFrames).toBe(true);
     const noFrames = buildTestPlan({
       planId: "XFPLAN-2",
@@ -156,7 +156,7 @@ describe("buildTestPlan", () => {
       level: "smoke",
       inputs: { config_version: 1 },
       environment: { ...baseEnv, figmaFrameCount: 0 },
-    });
+    }).plan;
     expect(noFrames.permissions.readFigmaFrames).toBe(false);
   });
 
@@ -168,7 +168,7 @@ describe("buildTestPlan", () => {
       level: "full",
       inputs: { config_version: 1 },
       environment: baseEnv,
-    });
+    }).plan;
     expect(plan.production_modifications).toEqual([]);
   });
 });

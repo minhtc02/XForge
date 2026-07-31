@@ -29,6 +29,17 @@ export interface OrchestratorInput {
     shardId: string,
     resultBundlePath: string,
   ) => Promise<TestExecution[]>;
+  /**
+   * Run the pre-flight accessibility probe (blueprint §13, optimization Phase
+   * 4). Returns the screens it could not reach; a non-empty result aborts the
+   * matrix, because every case behind an unreachable screen would only fail by
+   * timeout and be triaged as a product bug.
+   */
+  runProbe?: (resultBundlePath: string) => Promise<{ unreachable: string[] }>;
+  /** Whether to emit + run the probe invocation at all. */
+  includeProbe?: boolean;
+  /** UI test target used for `-only-testing:` identifiers. */
+  uiTestTarget?: string;
   now?: () => Date;
 }
 
@@ -48,6 +59,7 @@ function blockedExecutionsForShard(
     message,
     retries: 0,
     evidence: [],
+    verdict_source: "xcuitest",
   }));
 }
 
@@ -56,7 +68,10 @@ export async function orchestrateRun(
 ): Promise<RunResult> {
   const now = input.now ?? (() => new Date());
   const started = now().toISOString();
-  const execPlan = buildExecutionPlan(input.plan, input.config, input.runId);
+  const execPlan = buildExecutionPlan(input.plan, input.config, input.runId, {
+    includeProbe: input.includeProbe,
+    uiTestTarget: input.uiTestTarget,
+  });
   const executions: TestExecution[] = [];
 
   // --- Build once (blueprint §15.2). ---
@@ -85,11 +100,39 @@ export async function orchestrateRun(
     return finalize(input, executions, started, now);
   }
 
+  // --- Pre-flight accessibility probe (optimization Phase 4). ---
+  // Runs after the single build, before the matrix: it does not save the build,
+  // it saves running every shard into a wall of timeouts when the UI drifted.
+  if (execPlan.probe && !input.dryRun && input.runProbe) {
+    const probeResult = await input.runner.run(execPlan.probe.test);
+    if (probeResult.code === 0) {
+      const { unreachable } = await input.runProbe(
+        execPlan.probe.resultBundlePath,
+      );
+      if (unreachable.length > 0) {
+        for (const shard of input.plan.shards) {
+          executions.push(
+            ...blockedExecutionsForShard(
+              input.plan,
+              shard.id,
+              "BLOCKED",
+              `pre-flight probe could not reach: ${unreachable.join(", ")}`,
+            ).map((e) => ({ ...e, verdict_source: "probe" as const })),
+          );
+        }
+        return finalize(input, executions, started, now);
+      }
+    }
+  } else if (execPlan.probe && input.dryRun) {
+    await input.runner.run(execPlan.probe.test);
+  }
+
   const maxInfraRetries = input.config.execution.retry_infrastructure_failure;
 
   // --- Per-shard test (continue on failure, §4.1). ---
   for (const worker of execPlan.workers) {
     if (input.dryRun) {
+      for (const setup of worker.setup) await input.runner.run(setup);
       await input.runner.run(worker.test);
       executions.push(
         ...blockedExecutionsForShard(
@@ -101,6 +144,26 @@ export async function orchestrateRun(
       );
       continue;
     }
+
+    // Apply this shard's OS-level state before its tests. A setup failure is an
+    // environment problem, never a product bug (§4.4).
+    let setupOk = true;
+    for (const setup of worker.setup) {
+      const result = await input.runner.run(setup);
+      if (result.code !== 0) {
+        setupOk = false;
+        executions.push(
+          ...blockedExecutionsForShard(
+            input.plan,
+            worker.shard.id,
+            "ENVIRONMENT_BLOCKED",
+            `state setup failed: ${setup.label}`,
+          ),
+        );
+        break;
+      }
+    }
+    if (!setupOk) continue;
 
     let attempt = 0;
     let shardExecs: TestExecution[] = [];

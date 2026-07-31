@@ -21,6 +21,15 @@ export const TestExecution = z.object({
   retries: z.number().int().nonnegative().default(0),
   evidence: z.array(TestEvidence).default([]),
   visual_verdict: VisualVerdict.optional(),
+  /**
+   * Who decided this status. `xcuitest` is the test process itself; the others
+   * are XForge layers that may *escalate* a result after the fact. Recorded so a
+   * reader can tell a deterministic assertion failure from a probabilistic
+   * judgement and re-check the latter (§4.3).
+   */
+  verdict_source: z
+    .enum(["xcuitest", "visual-agent", "probe"])
+    .default("xcuitest"),
 });
 export type TestExecution = z.infer<typeof TestExecution>;
 

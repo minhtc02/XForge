@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Confidence, RunLevel, Severity, TestabilityMode } from "./enums.js";
-import { TestCase } from "./test-case.js";
+import { StateBucket, TestCase } from "./test-case.js";
 
 /**
  * TestPlan, TestSuite, SimulatorShard, TestabilityIssue, ExecutionPlan and
@@ -27,6 +27,13 @@ export const SimulatorShard = z.object({
   /** Cases sharing mutable state must run sequentially within a shard (§18). */
   sequential: z.boolean().default(true),
   estimated_minutes: z.number().nonnegative().default(0),
+  /**
+   * OS-level state applied once before this shard runs. Every case in the shard
+   * shares it — that is what makes a shard the right granularity for simctl.
+   */
+  state: StateBucket.optional(),
+  /** Stable key of {@link state}, used for grouping and for the plan summary. */
+  state_key: z.string().default("default"),
 });
 export type SimulatorShard = z.infer<typeof SimulatorShard>;
 
@@ -53,6 +60,12 @@ export const PlanInputs = z.object({
   figma_snapshot_version: z.string().optional(),
   /** Hash of the design map used, if any. */
   design_map_hash: z.string().optional(),
+  /**
+   * Hash of the navigation graph the plan's paths were derived from. Without
+   * this an approval could outlive the graph it was built on, and BFS would
+   * have produced steps nobody re-approved.
+   */
+  navigation_graph_hash: z.string().optional(),
 });
 export type PlanInputs = z.infer<typeof PlanInputs>;
 
