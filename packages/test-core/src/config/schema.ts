@@ -61,6 +61,31 @@ export const WorkersSection = z
   })
   .default({});
 
+/**
+ * Running the same case on more than one screen size — the cheapest way to
+ * catch the most common class of UI bug (layout that breaks on the small
+ * device, text that truncates at a large Dynamic Type size).
+ */
+export const ResponsiveSection = z
+  .object({
+    enabled: z.boolean().default(true),
+    /**
+     * Case types that fan out across every device whose roles include them.
+     * Functional cases stay on one device: re-running the same tap on four
+     * screens costs time and finds nothing.
+     */
+    expand_types: z.array(z.string()).default(["visual", "accessibility"]),
+    /**
+     * Dynamic Type sizes to additionally run accessibility cases at. Each size
+     * costs one more shard, so the default is the one that breaks layouts.
+     */
+    dynamic_type_sizes: z.array(z.string()).default([]),
+    /** Appearances to fan out across, e.g. `["light", "dark"]`. */
+    appearances: z.array(z.enum(["light", "dark"])).default([]),
+  })
+  .default({});
+export type ResponsiveSection = z.infer<typeof ResponsiveSection>;
+
 /** System-level state control via `simctl` (optimization plan §B). */
 export const StateSection = z
   .object({
@@ -196,6 +221,7 @@ export const TestConfig = z.object({
     },
   ]),
   workers: WorkersSection,
+  responsive: ResponsiveSection,
   state: StateSection,
   navigation: NavigationSection,
   planning: PlanningSection,

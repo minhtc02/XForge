@@ -33,6 +33,21 @@
         }
       }
     },
+    "responsive": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "expand_types": { "type": "array", "items": { "type": "string" } },
+        "dynamic_type_sizes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "appearances": {
+          "type": "array",
+          "items": { "enum": ["light", "dark"] }
+        }
+      }
+    },
     "state": {
       "type": "object",
       "properties": {

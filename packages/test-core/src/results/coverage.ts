@@ -15,11 +15,21 @@ export function computeCoverage(
   plan: TestPlan,
   executions: TestExecution[],
 ): CoverageReport {
-  const byCase = new Map<string, TestExecution>();
-  for (const e of executions) byCase.set(e.case_id, e);
+  // A case can run more than once — the same case executes on every device its
+  // types call for. Keeping only the last execution would let a failure on the
+  // small screen be masked by a pass on the large one, which is exactly the bug
+  // a device matrix exists to catch. So a case passes only if every one of its
+  // executions passed, and a case with no execution has not passed.
+  const byCase = new Map<string, TestExecution[]>();
+  for (const e of executions) {
+    byCase.set(e.case_id, [...(byCase.get(e.case_id) ?? []), e]);
+  }
 
-  const casePassed = (caseId: string): boolean =>
-    byCase.get(caseId)?.status === "PASS";
+  const casePassed = (caseId: string): boolean => {
+    const runs = byCase.get(caseId);
+    if (!runs || runs.length === 0) return false;
+    return runs.every((e) => e.status === "PASS");
+  };
 
   // Requirement coverage: a requirement is covered if any case references it.
   const reqMap = new Map<string, CoverageEntry>();

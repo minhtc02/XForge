@@ -117,10 +117,20 @@ export function buildTestPlan(input: BuildPlanInput): BuildPlanOutput {
     case_ids: testCases.filter((c) => c.feature === f.id).map((c) => c.id),
   }));
 
+  const responsive = input.config.responsive;
   const { shards, estimatedMinutes, mergedBuckets } = buildShards(
     testCases,
     input.config.devices,
-    { maxBucketsPerFeature: input.config.state.max_buckets_per_feature },
+    {
+      maxBucketsPerFeature: input.config.state.max_buckets_per_feature,
+      ...(responsive.enabled
+        ? {
+            expandTypes: new Set(responsive.expand_types),
+            dynamicTypeSizes: responsive.dynamic_type_sizes,
+            appearances: responsive.appearances,
+          }
+        : {}),
+    },
   );
 
   const byType: Record<string, number> = {};

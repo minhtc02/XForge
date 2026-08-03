@@ -41,6 +41,57 @@ function deviceForTypes(
   return scored[0]?.d ?? devices[0]!;
 }
 
+/**
+ * Every device a case should run on.
+ *
+ * Picking a single best device — the previous behaviour — meant a layout that
+ * breaks on the smallest screen was never seen, because the "visual" role
+ * scored highest on one device and the others were simply unused. A case whose
+ * types are in `expandTypes` therefore runs on *all* devices carrying a
+ * matching role; anything else stays on one, because re-running the same tap
+ * on four screens costs time and finds nothing.
+ */
+function devicesForTypes(
+  devices: DeviceConfig[],
+  types: string[],
+  expandTypes: ReadonlySet<string>,
+): DeviceConfig[] {
+  if (devices.length === 0) return [];
+  const shouldExpand = types.some((t) => expandTypes.has(t));
+  if (!shouldExpand) return [deviceForTypes(devices, types)];
+
+  const matching = devices.filter((d) =>
+    d.roles.some((r) => types.includes(r)),
+  );
+  return matching.length > 0 ? matching : [deviceForTypes(devices, types)];
+}
+
+/** Environment variants a case fans out across, beyond the device itself. */
+interface Variant {
+  /** Suffix for the shard id; empty for the base variant. */
+  key: string;
+  appearance?: "light" | "dark";
+  contentSize?: string;
+}
+
+function variantsFor(types: string[], options: ShardOptions): Variant[] {
+  const expand = options.expandTypes ?? new Set<string>();
+  if (!types.some((t) => expand.has(t))) return [{ key: "" }];
+
+  const variants: Variant[] = [{ key: "" }];
+  for (const appearance of options.appearances ?? []) {
+    variants.push({ key: `ui-${appearance}`, appearance });
+  }
+  // Dynamic Type is an accessibility concern; applying it to every visual case
+  // would multiply shards for little extra signal.
+  if (types.includes("accessibility")) {
+    for (const size of options.dynamicTypeSizes ?? []) {
+      variants.push({ key: `size-${size}`, contentSize: size });
+    }
+  }
+  return variants;
+}
+
 export interface ShardPlan {
   shards: SimulatorShard[];
   estimatedMinutes: { min: number; max: number };
@@ -51,6 +102,12 @@ export interface ShardPlan {
 export interface ShardOptions {
   /** Cap on distinct state buckets per feature (bucket-explosion guard). */
   maxBucketsPerFeature?: number;
+  /** Case types that fan out across devices and environment variants. */
+  expandTypes?: ReadonlySet<string>;
+  /** Dynamic Type sizes to additionally run accessibility cases at. */
+  dynamicTypeSizes?: string[];
+  /** Appearances to fan out across. */
+  appearances?: Array<"light" | "dark">;
 }
 
 /** Build shards from the generated test cases, grouped by feature and state. */
@@ -105,28 +162,84 @@ export function buildShards(
     for (const [stateKey, stateCases] of [...byState.entries()].sort(
       ([a], [b]) => a.localeCompare(b),
     )) {
-      const types = [...new Set(stateCases.flatMap((c) => c.types))];
-      const device =
-        devices.length > 0 ? deviceForTypes(devices, types) : fallbackDevice;
-      const estimated =
-        stateCases.length * MINUTES_PER_CASE + MINUTES_PER_INVOCATION;
-      const state = stateCases.find((c) => c.state)?.state;
-      shards.push({
-        id:
-          stateKey === "default"
-            ? `shard-${feature}`
-            : `shard-${feature}-${slug(stateKey)}`,
-        simulator_name: simulatorName(device.name, index),
-        device: device.name,
-        runtime: device.runtime,
-        roles: device.roles,
-        case_ids: stateCases.map((c) => c.id),
-        sequential: true,
-        estimated_minutes: Math.round(estimated * 100) / 100,
-        ...(state ? { state } : {}),
-        state_key: stateKey,
-      });
-      index += 1;
+      // Split by whether the case benefits from a second screen. Grouping them
+      // together would fan the functional cases out too: the shard's type set
+      // is the union of its cases', so one visual case would drag the whole
+      // feature onto every device for no extra signal.
+      const expandTypes = options.expandTypes ?? new Set<string>();
+      const groups: Array<{ cases: TestCase[]; expand: boolean }> = [];
+      const expanding = stateCases.filter((c) =>
+        c.types.some((t) => expandTypes.has(t)),
+      );
+      const plain = stateCases.filter(
+        (c) => !c.types.some((t) => expandTypes.has(t)),
+      );
+      if (plain.length > 0) groups.push({ cases: plain, expand: false });
+      if (expanding.length > 0) groups.push({ cases: expanding, expand: true });
+
+      for (const group of groups) {
+        emitShards(group.cases, group.expand);
+      }
+
+      function emitShards(groupCases: TestCase[], expand: boolean): void {
+        const types = [...new Set(groupCases.flatMap((c) => c.types))];
+        const targetDevices =
+          devices.length === 0
+            ? [fallbackDevice]
+            : expand
+              ? devicesForTypes(devices, types, expandTypes)
+              : [deviceForTypes(devices, types)];
+        const estimated =
+          groupCases.length * MINUTES_PER_CASE + MINUTES_PER_INVOCATION;
+        const state = groupCases.find((c) => c.state)?.state;
+        const stateCases = groupCases;
+        const variants = expand
+          ? variantsFor(types, options)
+          : [{ key: "" } as Variant];
+
+        for (const device of targetDevices) {
+          for (const variant of variants) {
+            const parts = [
+              stateKey === "default" ? "" : slug(stateKey),
+              targetDevices.length > 1 ? slug(device.name) : "",
+              variant.key,
+            ].filter((p) => p.length > 0);
+            const variantState =
+              variant.appearance || variant.contentSize
+                ? {
+                    fresh_install: state?.fresh_install ?? false,
+                    reset_permissions: state?.reset_permissions ?? false,
+                    grant_permissions: state?.grant_permissions ?? [],
+                    revoke_permissions: state?.revoke_permissions ?? [],
+                    ...state,
+                    ...(variant.appearance
+                      ? { appearance: variant.appearance }
+                      : {}),
+                    ...(variant.contentSize
+                      ? { content_size: variant.contentSize }
+                      : {}),
+                  }
+                : state;
+
+            shards.push({
+              id: ["shard", feature, ...parts].join("-"),
+              simulator_name: simulatorName(device.name, index),
+              device: device.name,
+              runtime: device.runtime,
+              roles: device.roles,
+              case_ids: stateCases.map((c) => c.id),
+              sequential: true,
+              estimated_minutes: Math.round(estimated * 100) / 100,
+              ...(variantState ? { state: variantState } : {}),
+              state_key:
+                parts.length > 0 && stateKey === "default"
+                  ? parts.join("|")
+                  : stateKey,
+            });
+            index += 1;
+          }
+        }
+      }
     }
   }
 

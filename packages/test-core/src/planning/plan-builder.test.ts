@@ -71,7 +71,7 @@ const baseEnv = {
 };
 
 describe("buildTestPlan", () => {
-  it("generates cases, suites and one shard per feature", () => {
+  it("generates cases, suites and shards per feature", () => {
     const plan = buildTestPlan({
       planId: "XFPLAN-1",
       model: alarmModel(),
@@ -82,8 +82,56 @@ describe("buildTestPlan", () => {
     }).plan;
     expect(plan.test_cases.length).toBeGreaterThan(0);
     expect(plan.suites).toHaveLength(2);
-    expect(plan.shards).toHaveLength(2);
     expect(plan.stats.total_cases).toBe(plan.test_cases.length);
+    // Two features, each split into a single-device group (functional) and a
+    // per-device group (visual/accessibility) across the two configured
+    // devices — see the responsive fan-out below.
+    expect(plan.shards.length).toBeGreaterThan(2);
+    expect(new Set(plan.shards.map((s) => s.device)).size).toBe(2);
+  });
+
+  it("runs visual and accessibility cases on every matching device", () => {
+    const plan = buildTestPlan({
+      planId: "XFPLAN-1",
+      model: alarmModel(),
+      config: defaultTestConfig(),
+      level: "regression",
+      inputs: { config_version: 1 },
+      environment: baseEnv,
+    }).plan;
+
+    const byCase = new Map(plan.test_cases.map((c) => [c.id, c]));
+    const devicesFor = (
+      predicate: (types: string[]) => boolean,
+    ): Set<string> => {
+      const devices = new Set<string>();
+      for (const shard of plan.shards) {
+        for (const id of shard.case_ids) {
+          if (predicate(byCase.get(id)?.types ?? [])) devices.add(shard.device);
+        }
+      }
+      return devices;
+    };
+
+    // The bug this exists to catch — layout breaking on the small screen — is
+    // only findable if the case actually runs there.
+    expect(devicesFor((t) => t.includes("visual")).size).toBe(2);
+    // A functional case gains nothing from a second screen, and costs a shard.
+    expect(devicesFor((t) => t.join() === "functional").size).toBe(1);
+  });
+
+  it("does not fan out when responsive expansion is off", () => {
+    const config = defaultTestConfig();
+    config.responsive.enabled = false;
+    const plan = buildTestPlan({
+      planId: "XFPLAN-1",
+      model: alarmModel(),
+      config,
+      level: "regression",
+      inputs: { config_version: 1 },
+      environment: baseEnv,
+    }).plan;
+    expect(plan.shards).toHaveLength(2);
   });
 
   it("honors the feature filter", () => {
