@@ -28,6 +28,9 @@ import {
 import { resolveNavigationGraph, runTestNavigation } from "./navigation.js";
 import { runTestDoctor } from "./doctor.js";
 import { runTestGenerate } from "./generate.js";
+import { runTestApprove } from "./approve.js";
+import { integrateWithXcode } from "./xcode-integrate.js";
+import { canPrompt, selectOne } from "../../prompt.js";
 
 export interface TestPlanOptions {
   feature?: string;
@@ -42,6 +45,10 @@ export interface TestPlanOptions {
   probe?: boolean;
   /** Overwrite existing generated sources. */
   force?: boolean;
+  /** Approve the plan as soon as it is written. Default true. */
+  approve?: boolean;
+  /** Copy generated sources into the Xcode targets. Default true. */
+  xcode?: boolean;
 }
 
 export interface TestPlanResult {
@@ -79,7 +86,17 @@ export interface TestPlanResult {
   };
   /** Why generation was skipped, when it was attempted but could not run. */
   generateSkippedReason?: string;
+  /** How the sources were wired into Xcode, when that step ran. */
+  xcodeIntegration?: {
+    method: string;
+    copied: string[];
+    added: Array<{ file: string; target: string }>;
+    warnings: string[];
+    backup?: string;
+  };
   approved: boolean;
+  /** Hash the approval is bound to, when this run approved the plan. */
+  planHash?: string;
 }
 
 const VALID_LEVELS: RunLevel[] = ["smoke", "critical", "regression", "full"];
@@ -96,7 +113,7 @@ export async function runTestPlan(
 ): Promise<TestPlanResult> {
   const { projectRoot, logger } = ctx;
   const level = normalizeLevel(options.level);
-  const featureFilter = options.feature
+  let featureFilter = options.feature
     ? options.feature
         .split(",")
         .map((f) => f.trim())
@@ -128,6 +145,17 @@ export async function runTestPlan(
   }
 
   const { model, testConfig } = await loadTestModelContext(ctx);
+
+  // --- Feature selection -------------------------------------------------
+  // Only ever prompt at a terminal with no explicit `--feature`: a prompt in CI
+  // hangs the build, and one under `--json` corrupts the output.
+  if (
+    featureFilter.length === 0 &&
+    canPrompt(ctx) &&
+    model.features.length > 0
+  ) {
+    featureFilter = await pickFeatures(model.features);
+  }
 
   // --- Navigation graph -------------------------------------------------
   // Scaffold one when the project has none, so BFS has something authored to
@@ -283,6 +311,46 @@ export async function runTestPlan(
     }
   }
 
+  // --- Put the sources where Xcode will build them ----------------------
+  // Prefer copying into a folder-backed target; fall back to editing the
+  // project with a backup and a structural check. Any doubt and it declines,
+  // because an unopenable project is a far worse outcome than a manual step.
+  let xcodeIntegration: TestPlanResult["xcodeIntegration"];
+  if (generated && options.xcode !== false) {
+    const integration = await integrateWithXcode({
+      projectRoot,
+      planId,
+      ...(testConfig.project.project !== "auto"
+        ? { xcodeProject: testConfig.project.project }
+        : {}),
+      ...(testConfig.project.ui_test_target !== "auto"
+        ? { uiTestTarget: testConfig.project.ui_test_target }
+        : {}),
+      ...(testConfig.project.scheme !== "auto"
+        ? { appTarget: testConfig.project.scheme }
+        : {}),
+    });
+    xcodeIntegration = {
+      method: integration.method,
+      copied: integration.copied,
+      added: integration.added,
+      warnings: integration.warnings,
+      ...(integration.backup ? { backup: integration.backup } : {}),
+    };
+  }
+
+  // --- Approval ----------------------------------------------------------
+  // Folded in so the common path is one command. The hash binding is kept, so
+  // a plan that later drifts still cannot run; what is skipped is the pause,
+  // not the guarantee. `--no-approve` restores the explicit gate.
+  let approved = false;
+  let planHash: string | undefined;
+  if (options.approve !== false) {
+    const approval = await runTestApprove(ctx, planId, { silent: true });
+    approved = approval.approved;
+    planHash = approval.planHash;
+  }
+
   const result: TestPlanResult = {
     planId,
     planDir: planDir(projectRoot, planId),
@@ -306,7 +374,9 @@ export async function runTestPlan(
     ...(navigationScaffolded ? { navigationScaffolded } : {}),
     ...(generated ? { generated } : {}),
     ...(generateSkippedReason ? { generateSkippedReason } : {}),
-    approved: false,
+    ...(xcodeIntegration ? { xcodeIntegration } : {}),
+    approved,
+    ...(planHash ? { planHash } : {}),
   };
 
   emitResult(ctx, result as unknown as Record<string, unknown>, () => {
@@ -362,6 +432,33 @@ export async function runTestPlan(
       );
     }
 
+    const xc = result.xcodeIntegration;
+    if (xc && (xc.copied.length > 0 || xc.added.length > 0)) {
+      const how =
+        xc.method === "synchronized-folder"
+          ? "copied into folder-backed target(s)"
+          : "added to project.pbxproj";
+      process.stderr.write(`\n  Xcode:              ${how}\n`);
+      for (const file of xc.copied) {
+        process.stderr.write(`                      ${file}\n`);
+      }
+      for (const { file, target } of xc.added) {
+        process.stderr.write(`                      ${file} → ${target}\n`);
+      }
+      if (xc.backup) {
+        process.stderr.write(`                      backup: ${xc.backup}\n`);
+      }
+    }
+    for (const warning of xc?.warnings ?? []) {
+      process.stderr.write(`  ! ${warning}\n`);
+    }
+
+    if (result.approved) {
+      process.stderr.write(
+        `\n  Approved:           ${result.planHash?.slice(0, 23)}…\n`,
+      );
+    }
+
     for (const warning of result.preflight?.warnings ?? []) {
       process.stderr.write(`  ! ${warning}\n`);
     }
@@ -369,19 +466,48 @@ export async function runTestPlan(
     process.stderr.write(
       `\n  Plan: ${planFilePath(projectRoot, planId, "planMarkdown")}\n`,
     );
-    if (result.generated) {
+
+    // Always end with the single next command, so the flow is self-guiding.
+    process.stderr.write("\n  Next:\n");
+    if (!result.generated) {
+      process.stderr.write(`    xforge test generate ${planId}\n`);
+    } else if (!result.approved) {
+      process.stderr.write(`    xforge test approve ${planId}\n`);
+    } else if (xc && xc.warnings.length > 0) {
       process.stderr.write(
-        `\n  Next:\n    review ${relative(projectRoot, result.generated.outputDir)}/README.md` +
-          " (add the sources to your UI test target)\n" +
-          `    xforge test approve ${planId}\n`,
+        `    add the sources listed above to your Xcode targets, then\n` +
+          `    xforge test run ${planId} --execute\n`,
       );
     } else {
       process.stderr.write(
-        `\n  Next:\n    xforge test generate ${planId}\n    xforge test approve ${planId}\n`,
+        `    xforge test run ${planId}              # dry run, no build\n` +
+          `    xforge test run ${planId} --execute   # run for real\n`,
       );
     }
   });
   return result;
+}
+
+/**
+ * Ask which features to plan for. "All features" is the first option because it
+ * is the common answer; a single feature is the one you pick deliberately.
+ */
+async function pickFeatures(
+  features: Array<{ id: string; name: string; status: string }>,
+): Promise<string[]> {
+  const choices = [
+    {
+      value: [] as string[],
+      label: "All features",
+      hint: `(${features.length})`,
+    },
+    ...features.map((f) => ({
+      value: [f.id],
+      label: f.name,
+      hint: `${f.id} — ${f.status}`,
+    })),
+  ];
+  return selectOne("Which features should the plan cover?", choices, 0);
 }
 
 function normalizeLevel(level?: string): RunLevel {

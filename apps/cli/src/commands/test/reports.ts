@@ -105,13 +105,40 @@ export async function runTestReport(
     JSON.parse(await readFile(summaryJsonPath, "utf8")),
   );
   const markdown = existsSync(mdPath) ? await readFile(mdPath, "utf8") : "";
+
+  // Bugs belong in the report: asking for them separately made it easy to read
+  // a green-looking summary and miss the triaged failures underneath.
+  const bugsPath = runFilePath(ctx.projectRoot, runsRoot, resolved, "bugsJson");
+  const bugs: Array<Record<string, unknown>> = existsSync(bugsPath)
+    ? ((JSON.parse(await readFile(bugsPath, "utf8")).bugs ?? []) as Array<
+        Record<string, unknown>
+      >)
+    : [];
+
   const payload = {
     runId: resolved,
     stats: run.stats,
     gatePassed: run.gate_passed,
+    bugs,
   };
   emitResult(ctx, payload, () => {
     process.stdout.write(markdown + "\n");
+    if (bugs.length > 0) {
+      process.stdout.write(`\n## Bugs (${bugs.length})\n\n`);
+      for (const bug of bugs) {
+        process.stdout.write(
+          `- **${String(bug.id)}** [${String(bug.severity)}] ${String(bug.title)}\n` +
+            `  feature: ${String(bug.feature)} · cases: ${(bug.impacted_cases as string[] | undefined)?.length ?? 0}\n`,
+        );
+      }
+    }
+    process.stderr.write(
+      bugs.length > 0
+        ? `\n  Next: fix the bugs above, then \`xforge test plan\` to re-verify.\n`
+        : run.gate_passed
+          ? "\n  Next: gate passed — nothing to do.\n"
+          : "\n  Next: `xforge test status` for per-case detail.\n",
+    );
   });
   return payload;
 }

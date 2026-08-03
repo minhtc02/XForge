@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLogger, ValidationError } from "@xforge/shared";
 import { runInit } from "../init.js";
 import { runDocs } from "../docs.js";
+import { verifyPbxproj } from "@xforge/core";
 import { runTestPlan } from "./plan.js";
 import type { CliContext } from "../../context.js";
 
@@ -42,6 +43,72 @@ async function scaffoldProject(dir: string): Promise<void> {
   await writeFile(
     join(dir, "AppUITests/AlarmUITests.swift"),
     "import XCTest\nfinal class AlarmUITests: XCTestCase { func testLaunch() {} }\n",
+  );
+}
+
+/** A minimal but structurally complete Xcode project with two targets. */
+async function scaffoldXcode(dir: string): Promise<void> {
+  await mkdir(join(dir, "MyApp.xcodeproj/xcshareddata/xcschemes"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(dir, "MyApp.xcodeproj/xcshareddata/xcschemes/MyApp.xcscheme"),
+    "<Scheme/>",
+  );
+  await writeFile(
+    join(dir, "MyApp.xcodeproj/project.pbxproj"),
+    `// !$*UTF8*$!
+{
+	objects = {
+/* Begin PBXBuildFile section */
+/* End PBXBuildFile section */
+/* Begin PBXFileReference section */
+/* End PBXFileReference section */
+/* Begin PBXGroup section */
+		DDDDDDDDDDDDDDDDDDDDDD01 /* AppUITests */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = AppUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+/* Begin PBXNativeTarget section */
+		EEEEEEEEEEEEEEEEEEEEEE01 /* MyApp */ = {
+			isa = PBXNativeTarget;
+			buildPhases = (
+				FFFFFFFFFFFFFFFFFFFFFF01 /* Sources */,
+			);
+			name = MyApp;
+			productType = "com.apple.product-type.application";
+		};
+		EEEEEEEEEEEEEEEEEEEEEE02 /* AppUITests */ = {
+			isa = PBXNativeTarget;
+			buildPhases = (
+				FFFFFFFFFFFFFFFFFFFFFF02 /* Sources */,
+			);
+			name = AppUITests;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+/* Begin PBXSourcesBuildPhase section */
+		FFFFFFFFFFFFFFFFFFFFFF01 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		FFFFFFFFFFFFFFFFFFFFFF02 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXSourcesBuildPhase section */
+/* Begin XCBuildConfiguration section */
+		B1 = { isa = XCBuildConfiguration; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = com.acme.myapp; }; };
+/* End XCBuildConfiguration section */
+	};
+}
+`,
   );
 }
 
@@ -178,6 +245,103 @@ describe("runTestPlan pipeline", () => {
       doctor: false,
     });
     expect(result.preflight).toBeUndefined();
+  });
+
+  it("approves the plan and wires sources into Xcode by default", async () => {
+    await scaffoldProject(root);
+    await scaffoldXcode(root);
+    await initAndDocs(root);
+
+    const result = await runTestPlan(ctx(root), { level: "smoke" });
+
+    expect(result.approved).toBe(true);
+    expect(result.planHash).toMatch(/^sha256:/);
+    expect(
+      existsSync(
+        join(root, ".xforge/test/plans", result.planId, "approval.json"),
+      ),
+    ).toBe(true);
+
+    // Sources landed in the project, and the project is still valid.
+    expect(result.xcodeIntegration?.method).toBe("pbxproj");
+    expect(result.xcodeIntegration?.added.map((a) => a.file)).toContain(
+      "XForgeUITests.swift",
+    );
+    const pbx = await readFile(
+      join(root, "MyApp.xcodeproj/project.pbxproj"),
+      "utf8",
+    );
+    expect(verifyPbxproj(pbx, { targets: 2 })).toEqual({ ok: true });
+    expect(
+      existsSync(join(root, "MyApp.xcodeproj/project.pbxproj.xforge-backup")),
+    ).toBe(true);
+  });
+
+  it("adds each source exactly once when re-planned", async () => {
+    await scaffoldProject(root);
+    await scaffoldXcode(root);
+    await initAndDocs(root);
+    await runTestPlan(ctx(root), { level: "smoke" });
+    await runTestPlan(ctx(root), { level: "smoke", force: true });
+
+    const pbx = await readFile(
+      join(root, "MyApp.xcodeproj/project.pbxproj"),
+      "utf8",
+    );
+    const refs = pbx.match(
+      /isa = PBXFileReference;[^\n]*XForgeUITests\.swift/g,
+    );
+    expect(refs).toHaveLength(1);
+    expect(verifyPbxproj(pbx, { targets: 2 }).ok).toBe(true);
+  });
+
+  it("honours --no-approve and --no-xcode", async () => {
+    await scaffoldProject(root);
+    await scaffoldXcode(root);
+    await initAndDocs(root);
+
+    const result = await runTestPlan(ctx(root), {
+      level: "smoke",
+      approve: false,
+      xcode: false,
+    });
+
+    expect(result.approved).toBe(false);
+    expect(result.xcodeIntegration).toBeUndefined();
+    const pbx = await readFile(
+      join(root, "MyApp.xcodeproj/project.pbxproj"),
+      "utf8",
+    );
+    expect(pbx).not.toContain("XForgeUITests.swift");
+  });
+
+  it("declines to touch a project it cannot edit safely", async () => {
+    await scaffoldProject(root);
+    await scaffoldXcode(root);
+    // Remove the UI test target's sources phase: there is nowhere valid to add.
+    const pbxPath = join(root, "MyApp.xcodeproj/project.pbxproj");
+    const pbx = await readFile(pbxPath, "utf8");
+    await writeFile(
+      pbxPath,
+      pbx.replace("\t\t\t\tFFFFFFFFFFFFFFFFFFFFFF02 /* Sources */,\n", ""),
+    );
+    await initAndDocs(root);
+
+    const result = await runTestPlan(ctx(root), { level: "smoke" });
+
+    // Partial success is the right outcome: the app target is intact, so the
+    // support file goes in; only the file with nowhere valid to land is
+    // declined, and it says so rather than failing silently.
+    expect(result.xcodeIntegration?.added.map((a) => a.file)).toEqual([
+      "XForgeTestSupport.swift",
+    ]);
+    const warning = result.xcodeIntegration?.warnings.join(" ") ?? "";
+    expect(warning).toContain("XForgeUITests.swift");
+    expect(warning).toContain("Add it in Xcode");
+
+    // Whatever happened, the project must still open.
+    const after = await readFile(pbxPath, "utf8");
+    expect(verifyPbxproj(after, { targets: 2 }).ok).toBe(true);
   });
 
   it("does not re-scaffold an existing navigation graph", async () => {

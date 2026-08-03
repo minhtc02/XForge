@@ -147,10 +147,18 @@ export async function runTestRun(
         `  Infra:   ${s.infrastructure}\n  Skipped: ${s.skipped}\n  Bugs:    ${bugs.length}\n` +
         `\n  Summary: ${runFilePath(projectRoot, config.output.runs_root, runId, "summaryMarkdown")}\n`,
     );
+    process.stderr.write("\n  Next:\n");
     if (dryRun) {
       process.stderr.write(
-        "\n  This was a dry run (no simulators executed). Re-run with --execute\n" +
-          "  on a Mac with Xcode + a UI-testable app to run for real.\n",
+        "    This was a dry run — no simulators executed.\n" +
+          `    xforge test run ${planId} --execute   # run for real\n`,
+      );
+    } else {
+      process.stderr.write(
+        `    xforge test report   # summary${bugs.length > 0 ? ` + ${bugs.length} bug(s)` : ""}\n` +
+          (runResult.gate_passed
+            ? ""
+            : "    xforge test status   # per-case detail\n"),
       );
     }
   });

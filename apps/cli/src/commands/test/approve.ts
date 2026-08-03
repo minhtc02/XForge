@@ -12,6 +12,8 @@ import { emitResult, type CliContext } from "../../context.js";
 
 export interface TestApproveOptions {
   verify?: boolean;
+  /** Suppress output — used when `test plan` runs this as a sub-step. */
+  silent?: boolean;
 }
 
 export interface TestApproveResult {
@@ -79,6 +81,7 @@ export async function runTestApprove(
       approvalPath,
       workers: plan.shards.length,
     };
+    if (options.silent) return result;
     emitResult(ctx, result as unknown as Record<string, unknown>, () => {
       if (result.approved)
         logger.success(`Plan ${planId} is approved and current`);
@@ -97,6 +100,8 @@ export async function runTestApprove(
     approvalPath,
     workers: manifest.workers,
   };
+
+  if (options.silent) return result;
 
   emitResult(ctx, result as unknown as Record<string, unknown>, () => {
     logger.success(`Plan ${planId} approved`);

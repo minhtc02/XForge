@@ -225,6 +225,8 @@ test
   .option("--no-doctor", "skip the environment preflight")
   .option("--no-navigation", "do not scaffold navigation.yaml when missing")
   .option("--no-generate", "do not generate XCUITest sources after planning")
+  .option("--no-approve", "leave the plan unapproved for manual review")
+  .option("--no-xcode", "do not add generated sources to the Xcode targets")
   .option("--probe", "also generate the accessibility probe class", false)
   .option("--force", "overwrite existing generated sources", false)
   .action(async (opts, cmd: Command) => {
@@ -236,6 +238,8 @@ test
           doctor: opts.doctor,
           navigation: opts.navigation,
           generate: opts.generate,
+          approve: opts.approve,
+          xcode: opts.xcode,
           probe: opts.probe,
           force: opts.force,
         }),

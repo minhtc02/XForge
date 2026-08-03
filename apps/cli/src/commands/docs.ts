@@ -406,5 +406,10 @@ function renderDocsSummary(logger: Logger, result: DocsResult): void {
         `  Digest:        ${result.digestPath} — read this first\n` +
         `  Wrote ${result.writtenFiles.length} files.\n`,
     );
+    process.stderr.write(
+      "\n  Next:\n" +
+        `    xforge test plan   # plan, generate and approve QA for ${result.stats.features} feature(s)\n` +
+        "    xforge docs check  # in CI: fail when documentation drifts\n",
+    );
   }
 }
