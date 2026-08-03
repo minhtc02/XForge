@@ -46,6 +46,13 @@ export const GenerationConfig = z
     detect_feature_gaps: z.boolean().default(true),
     preserve_manual_blocks: z.boolean().default(true),
     minimum_confidence: z.number().min(0).max(1).default(0.75),
+    /**
+     * Publish the complete model — inventories included — as
+     * `_meta/project-model.json`, so the documentation tree stands on its own.
+     * Turn off on a very large repository to keep the published tree small;
+     * `.xforge/state/` always keeps the split form regardless.
+     */
+    publish_full_model: z.boolean().default(true),
   })
   .default({});
 

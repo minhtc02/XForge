@@ -47,7 +47,11 @@
         "include_tests": { "type": "boolean" },
         "detect_feature_gaps": { "type": "boolean" },
         "preserve_manual_blocks": { "type": "boolean" },
-        "minimum_confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        "minimum_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "publish_full_model": {
+          "description": "Publish the complete model (inventories included) as _meta/project-model.json. .xforge/state/ always keeps the split form.",
+          "type": "boolean"
+        }
       }
     },
     "features": {

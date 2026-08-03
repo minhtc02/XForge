@@ -67,6 +67,10 @@ export interface DocsResult {
   fileIndexPath: string;
   writtenFiles: string[];
   skippedDocuments: number;
+  /** Whether `_meta/project-model.json` carries the inventories too. */
+  publishedFullModel: boolean;
+  /** The agent-facing digest: read this before the model. */
+  digestPath: string;
   stats: {
     features: number;
     requirements: number;
@@ -200,13 +204,22 @@ export async function runDocs(
   );
   const generatedAt = new Date().toISOString();
   if (!options.dryRun) {
-    // The model is persisted as a small core file plus per-file appendices, so
-    // the file an agent opens stays readable on a large repository. `_meta`
-    // publishes the core only — the appendices are working data, not docs.
+    // Working state is split — a small core the agent opens, plus per-file
+    // appendices — so reading the model never costs a whole repository's worth
+    // of tokens.
     await writeProjectModel(projectRoot, model);
+
+    // The published tree is a different audience: a human or a tool that has
+    // only `docs/` should not have to reassemble four files. So `_meta` carries
+    // the complete model by default, and the split stays an implementation
+    // detail of `.xforge/state/`.
     await writeFileEnsured(
       metaModelPath,
-      serializeProjectModel(splitProjectModel(model).core),
+      serializeProjectModel(
+        config.generation.publish_full_model
+          ? model
+          : splitProjectModel(model).core,
+      ),
     );
 
     // The digest is what an agent should open first: a few KB that says what
@@ -271,6 +284,8 @@ export async function runDocs(
     dryRun: Boolean(options.dryRun),
     modelPath: metaModelPath,
     fileIndexPath,
+    publishedFullModel: config.generation.publish_full_model,
+    digestPath: statePath(projectRoot, "modelDigest"),
     writtenFiles,
     skippedDocuments,
     stats: {
@@ -385,7 +400,11 @@ function renderDocsSummary(logger: Logger, result: DocsResult): void {
       `  Gaps:          ${result.stats.gaps}\n`,
   );
   if (!result.dryRun) {
-    process.stderr.write(`\n  Project model: ${result.modelPath}\n`);
-    process.stderr.write(`  Wrote ${result.writtenFiles.length} files.\n`);
+    process.stderr.write(
+      `\n  Project model: ${result.modelPath}` +
+        `${result.publishedFullModel ? " (complete)" : " (core only)"}\n` +
+        `  Digest:        ${result.digestPath} — read this first\n` +
+        `  Wrote ${result.writtenFiles.length} files.\n`,
+    );
   }
 }

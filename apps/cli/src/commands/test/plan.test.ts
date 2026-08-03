@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -55,6 +55,53 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
+});
+
+describe("published model", () => {
+  it("publishes the complete model under _meta by default", async () => {
+    await scaffoldProject(root);
+    await initAndDocs(root);
+
+    const published = JSON.parse(
+      await readFile(
+        join(root, "docs/project/_meta/project-model.json"),
+        "utf8",
+      ),
+    );
+    // Complete: the inventories are inline, not split out to appendices.
+    expect(published.source_files.length).toBeGreaterThan(0);
+    expect(published.symbols.length).toBeGreaterThan(0);
+    expect(published.appendix_counts).toBeUndefined();
+
+    // Working state stays split, so an agent still reads a small file.
+    const core = JSON.parse(
+      await readFile(join(root, ".xforge/state/project-model.json"), "utf8"),
+    );
+    expect(core.source_files).toEqual([]);
+    expect(core.appendix_counts.source_files).toBeGreaterThan(0);
+  });
+
+  it("publishes the core when publish_full_model is off", async () => {
+    await scaffoldProject(root);
+    await runInit(ctx(root), {});
+    const cfgPath = join(root, ".xforge/config.yaml");
+    const cfg = await readFile(cfgPath, "utf8");
+    expect(cfg).toContain("publish_full_model: true");
+    await writeFile(
+      cfgPath,
+      cfg.replace("publish_full_model: true", "publish_full_model: false"),
+    );
+    await runDocs(ctx(root), {});
+
+    const published = JSON.parse(
+      await readFile(
+        join(root, "docs/project/_meta/project-model.json"),
+        "utf8",
+      ),
+    );
+    expect(published.source_files).toEqual([]);
+    expect(published.appendix_counts.source_files).toBeGreaterThan(0);
+  });
 });
 
 describe("runTestPlan pipeline", () => {

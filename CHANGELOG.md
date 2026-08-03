@@ -22,6 +22,11 @@ are reported.
 
 ### Added
 
+- **`_meta/project-model.json` is the complete model** — the published
+  documentation tree stands on its own, so a reader with only `docs/` never has
+  to reassemble the core file and three appendices. `.xforge/state/` keeps the
+  split form, which is what keeps an agent's read cheap. Set
+  `generation.publish_full_model: false` to publish the core instead.
 - **iOS entity extraction** — the Canonical Project Model now carries
   `data_models`, `persistence_entities`, `permissions`, `analytics_events`,
   `api_endpoints`, `dependencies`, `test_cases`, `architecture`,
