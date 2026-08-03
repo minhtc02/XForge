@@ -235,7 +235,8 @@ function renderInitSummary(logger: Logger, result: InitResult): void {
   }
 
   process.stderr.write(
-    "\nNext: run `xforge docs` to generate documentation.\n",
+    "\n  Next:\n" +
+      "    xforge docs        # compile the model and generate documentation\n",
   );
 }
 
