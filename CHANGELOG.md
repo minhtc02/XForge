@@ -4,7 +4,21 @@ All notable changes to XForge are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0]
+
+### Upgrading an existing project
+
+Run `xforge upgrade` in any project initialized by an earlier version, then
+`xforge docs`. The upgrade only ever _adds_: it creates
+`.xforge/test/config.yaml` if missing, fills configuration fields still at their
+`auto` sentinel with values resolved from the Xcode project, and reports
+everything else as an action. It never overwrites a value the project already
+set — unlike `init --force`, which regenerates the config and would discard a
+hand-edited `features:` map or output language.
+
+Regenerating documentation is safe at any time: manual blocks are preserved and
+the model heals itself. Approvals bound to a plan hash go stale by design and
+are reported.
 
 ### Added
 

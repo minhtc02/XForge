@@ -8,6 +8,7 @@ import { runDocs } from "./commands/docs.js";
 import { runSync } from "./commands/sync.js";
 import { runCheck } from "./commands/check.js";
 import { runInspect, type InspectTarget } from "./commands/inspect.js";
+import { runUpgrade } from "./commands/upgrade.js";
 import { runTestDoctor } from "./commands/test/doctor.js";
 import { runTestPlan } from "./commands/test/plan.js";
 import { runTestApprove } from "./commands/test/approve.js";
@@ -165,6 +166,16 @@ docs
   .description("Check for documentation drift (exit 1 if drift found)")
   .action(async (_opts, cmd: Command) => {
     await run((ctx) => runCheck(ctx), cmd);
+  });
+
+program
+  .command("upgrade")
+  .description(
+    "Bring a project initialized by an older XForge up to date (never overwrites your settings)",
+  )
+  .option("--dry-run", "report what would change without writing", false)
+  .action(async (opts, cmd: Command) => {
+    await run((ctx) => runUpgrade(ctx, { dryRun: opts.dryRun }), cmd);
   });
 
 program
