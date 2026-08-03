@@ -271,6 +271,9 @@ const ROLE_COMPONENTS: Record<string, { id: string; name: string }> = {
   other: { id: "supporting-code", name: "Supporting code" },
 };
 
+/** Sample size for a layer's file list; the true total is `file_count`. */
+const MAX_COMPONENT_FILES = 20;
+
 /** Group source files into architectural layers by detected role. */
 export function detectArchitecture(
   sources: AnalyzedSource[],
@@ -299,7 +302,9 @@ export function detectArchitecture(
   return [...byComponent.values()]
     .map((c) => ({
       ...c,
-      files: c.files.sort(),
+      // A layer can hold thousands of files; `file_count` carries the total, so
+      // the list only needs to be representative.
+      files: c.files.sort().slice(0, MAX_COMPONENT_FILES),
       features: c.features.sort(),
     }))
     .sort((a, b) => b.file_count - a.file_count || a.id.localeCompare(b.id));

@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { loadConfig, parseProjectModelJson, statePath } from "@xforge/core";
+import { loadConfig, readProjectModel, statePath } from "@xforge/core";
 import { NotFoundError, type Logger } from "@xforge/shared";
 import { emitResult, type CliContext } from "../context.js";
 
@@ -25,7 +24,8 @@ export async function runInspect(
       { details: { modelPath } },
     );
   }
-  const model = parseProjectModelJson(await readFile(modelPath, "utf8"));
+  // `inspect` exists to show what was found, so it wants everything.
+  const model = await readProjectModel(projectRoot, { full: true });
 
   let payload: Record<string, unknown>;
   switch (target) {

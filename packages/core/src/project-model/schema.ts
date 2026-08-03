@@ -80,12 +80,17 @@ export const Feature = z.object({
   status: ImplementationStatus,
   confidence: Confidence.default(0.5),
   summary: z.string().optional(),
+  /** Representative entry points; `entry_point_count` is the real total. */
   entry_points: z.array(FeatureEntryPoint).default([]),
+  entry_point_count: z.number().int().nonnegative().optional(),
   source_files: z.array(z.string()).default([]),
   requirements: z.array(z.string()).default([]),
   /** Frameworks imported by this feature's files (SwiftUI, CoreLocation, ...). */
   frameworks: z.array(z.string()).default([]),
+  /** Representative evidence; see `evidence_count` for how much was found. */
   evidence: z.array(Evidence).default([]),
+  /** Total evidence entries found, of which `evidence` keeps a sample. */
+  evidence_count: z.number().int().nonnegative().optional(),
 });
 export type Feature = z.infer<typeof Feature>;
 
@@ -192,6 +197,7 @@ export const ArchitectureComponent = z.object({
   name: z.string().min(1),
   role: z.string().min(1),
   file_count: z.number().int().nonnegative().default(0),
+  /** A sample of the layer's files; `file_count` is the real total. */
   files: z.array(z.string()).default([]),
   features: z.array(z.string()).default([]),
 });
@@ -283,6 +289,14 @@ export const ProjectModel = z.object({
   url_schemes: z.array(z.string()).default([]),
   gaps: z.array(Gap).default([]),
   assumptions: z.array(Assumption).default([]),
+  /**
+   * Entry counts for arrays persisted as separate appendix files. Present only
+   * in the core model on disk, so a reader can distinguish "listed separately"
+   * from "none found" (see `project-model/split.ts`).
+   */
+  appendix_counts: z
+    .record(z.string(), z.number().int().nonnegative())
+    .optional(),
   metadata: GenerationMetadata,
 });
 export type ProjectModel = z.infer<typeof ProjectModel>;

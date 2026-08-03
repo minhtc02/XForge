@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   buildDependencyGraph,
+  buildModelDigest,
   buildFeatureMap,
   buildGenerationState,
   buildRequirementMap,
@@ -34,8 +35,11 @@ import {
   generateUndocumentedCode,
   loadConfig,
   mergeManualContent,
+  serializeModelDigest,
   serializeProjectModel,
+  splitProjectModel,
   statePath,
+  writeProjectModel,
   type GenContext,
   type ProjectModel,
 } from "@xforge/core";
@@ -187,8 +191,6 @@ export async function runDocs(
   await write("_meta/assumptions.md", generateAssumptions(genCtx));
 
   // _meta artifacts + persisted state.
-  const modelJson = serializeProjectModel(model);
-  const modelStatePath = statePath(projectRoot, "projectModel");
   const fileIndexPath = statePath(projectRoot, "fileIndex");
   const metaModelPath = join(
     projectRoot,
@@ -198,8 +200,23 @@ export async function runDocs(
   );
   const generatedAt = new Date().toISOString();
   if (!options.dryRun) {
-    await writeFileEnsured(modelStatePath, modelJson);
-    await writeFileEnsured(metaModelPath, modelJson);
+    // The model is persisted as a small core file plus per-file appendices, so
+    // the file an agent opens stays readable on a large repository. `_meta`
+    // publishes the core only — the appendices are working data, not docs.
+    await writeProjectModel(projectRoot, model);
+    await writeFileEnsured(
+      metaModelPath,
+      serializeProjectModel(splitProjectModel(model).core),
+    );
+
+    // The digest is what an agent should open first: a few KB that says what
+    // exists and where to look, instead of the whole model.
+    const digest = serializeModelDigest(buildModelDigest(model));
+    await writeFileEnsured(statePath(projectRoot, "modelDigest"), digest);
+    await writeFileEnsured(
+      join(projectRoot, outRoot, "_meta", "summary.json"),
+      digest,
+    );
     await writeFileEnsured(
       fileIndexPath,
       JSON.stringify({ files: fileIndex, generated_at: generatedAt }, null, 2) +
@@ -243,6 +260,7 @@ export async function runDocs(
 
     writtenFiles.push(
       join(outRoot, "_meta", "project-model.json"),
+      join(outRoot, "_meta", "summary.json"),
       join(outRoot, "_meta", "evidence.jsonl"),
       join(outRoot, "_meta", "generation-report.json"),
     );

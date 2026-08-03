@@ -4,6 +4,8 @@ import { ProjectModel } from "./schema.js";
 
 export * from "./enums.js";
 export * from "./schema.js";
+export * from "./split.js";
+export * from "./digest.js";
 
 /**
  * Parse and validate an unknown value as a {@link ProjectModel}.

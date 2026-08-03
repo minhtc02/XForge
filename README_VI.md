@@ -84,7 +84,7 @@ node apps/cli/dist/index.js --cwd test-fixtures/ios-swiftui docs
 node apps/cli/dist/index.js --cwd test-fixtures/ios-swiftui inspect project --json
 ```
 
-### Cài global — không bắt buộc
+### Cài global — được khuyến nghị để sử dụng
 
 ```bash
 pnpm --filter @xforge/cli build
@@ -99,14 +99,14 @@ xforge --help
 
 ## Các command chính
 
-| Command                   | Mô tả                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------ |
-| `xforge init`             | Detect loại dự án; tạo `.xforge/config.yaml`, thư mục state và thư mục output. |
-| `xforge doctor`           | Kiểm tra môi trường và tính hợp lệ của config.                                 |
-| `xforge docs`             | Tạo, lưu Canonical Project Model và tài liệu index.                            |
-| `xforge docs sync`        | Sinh lại tài liệu cho các file đã thay đổi theo cơ chế incremental.            |
-| `xforge docs check`       | Phát hiện documentation drift; trả exit code `1` nếu có drift.                 |
-| `xforge inspect <target>` | In ra một phần cụ thể của Project Model.                                       |
+| Command                   | Mô tả                                                                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `xforge init`             | Detect loại dự án; tạo `.xforge/config.yaml`, thư mục state và thư mục output.                                                      |
+| `xforge doctor`           | Kiểm tra môi trường và tính hợp lệ của config.                                                                                      |
+| `xforge docs`             | Tạo, lưu Canonical Project Model và tài liệu index. Nếu chưa có PRD, CLI sẽ tự hỏi có muốn gọi BMAD/Spec Kit để sinh tự động không. |
+| `xforge docs sync`        | Sinh lại tài liệu cho các file đã thay đổi theo cơ chế incremental.                                                                 |
+| `xforge docs check`       | Phát hiện documentation drift; trả exit code `1` nếu có drift.                                                                      |
+| `xforge inspect <target>` | In ra một phần cụ thể của Project Model.                                                                                            |
 
 Tất cả command đều hỗ trợ:
 
@@ -159,6 +159,21 @@ codebase-analyst
 product-analyst
 doc-writer
 doc-reviewer
+```
+
+### Cài đặt Plugin
+
+Khi đang phát triển (chưa publish), khởi chạy Claude Code với cờ `--plugin-dir` để cài cục bộ:
+
+```bash
+claude --plugin-dir /path/to/xforge/plugins/claude
+```
+
+Nếu cài qua GitHub Marketplace (khi đã publish repo), sử dụng cờ `--sparse` vì plugin nằm trong cấu trúc monorepo:
+
+```bash
+claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins/claude
+/plugin install xforge
 ```
 
 ## XForge Test — QA tự động cho iOS

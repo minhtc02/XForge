@@ -307,8 +307,8 @@ export function generateRepositoryStructure(ctx: GenContext): string {
   }
   const rows = [...dirs.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([dir, count]) => `- \`${dir}/\` — ${count} Swift file(s)`);
-  const body = rows.length === 0 ? tr.notDetected : rows.join("\n");
+    .map(([dir, count]) => `\`${dir}/\` — ${count} Swift file(s)`);
+  const body = cappedBullets(rows, tr.notDetected, { source: SOURCE_APPENDIX });
   return doc(model, tr.repoStructure, body);
 }
 
@@ -333,6 +333,35 @@ const PERMISSION_FRAMEWORKS: Readonly<Record<string, string>> = {
 
 function bullets(items: string[], fallback: string): string {
   return items.length > 0 ? items.map((i) => `- ${i}`).join("\n") : fallback;
+}
+
+/**
+ * Default cap for generated lists. A document that prints one bullet per source
+ * file stops being readable — and, since these documents are what the LLM layer
+ * consumes, stops being affordable. The count and a pointer to the complete
+ * data are always kept, so nothing is silently truncated (§3.3).
+ */
+const MAX_LIST_ITEMS = 50;
+
+/** Where the complete per-file inventories live (see `project-model/split.ts`). */
+const A11Y_APPENDIX = ".xforge/state/model/accessibility-identifiers.json";
+const SOURCE_APPENDIX = ".xforge/state/model/source-files.json";
+
+function cappedBullets(
+  items: string[],
+  fallback: string,
+  options: { limit?: number; source?: string } = {},
+): string {
+  const limit = options.limit ?? MAX_LIST_ITEMS;
+  if (items.length === 0) return fallback;
+  if (items.length <= limit) return bullets(items, fallback);
+  const hidden = items.length - limit;
+  const pointer = options.source ? ` — full list in \`${options.source}\`` : "";
+  return [
+    bullets(items.slice(0, limit), fallback),
+    "",
+    `_… and ${hidden} more of ${items.length} total${pointer}._`,
+  ].join("\n");
 }
 
 /** A single feature document following the §8 section structure. */
@@ -721,10 +750,11 @@ export function generateUndocumentedCode(ctx: GenContext): string {
   const orphans = model.source_files
     .filter((sf) => !inFeatures.has(sf.path) && sf.role !== "test")
     .map((sf) => sf.path);
-  const body =
-    orphans.length === 0
-      ? tr.notDetected
-      : orphans.map((p) => `- \`${p}\``).join("\n");
+  const body = cappedBullets(
+    orphans.map((p) => `\`${p}\``),
+    tr.notDetected,
+    { source: SOURCE_APPENDIX },
+  );
   return doc(model, tr.undocumented, body);
 }
 
@@ -736,16 +766,17 @@ export function generateDataModelsDoc(ctx: GenContext): string {
   const body =
     model.data_models.length === 0
       ? tr.notDetected
-      : model.data_models
-          .map((m) => {
+      : cappedBullets(
+          model.data_models.map((m) => {
             const where = `\`${m.file}${m.start_line ? `:${m.start_line}` : ""}\``;
             const conf =
               m.conformances.length > 0
                 ? ` — ${m.conformances.join(", ")}`
                 : " — INFERRED (model-role file)";
-            return `- **${m.name}** (${m.kind})${conf} — ${where}${m.feature ? ` — ${m.feature}` : ""}`;
-          })
-          .join("\n");
+            return `**${m.name}** (${m.kind})${conf} — ${where}${m.feature ? ` — ${m.feature}` : ""}`;
+          }),
+          tr.notDetected,
+        );
   return doc(model, tr.dataModels, body);
 }
 
@@ -1000,31 +1031,34 @@ export function generateAccessibilityDoc(ctx: GenContext): string {
     "",
     `## ${tr.notDetected} — view files without an accessibility identifier`,
     "",
-    bullets(
+    cappedBullets(
       uncovered.map((f) => `\`${f.path}\``),
       tr.notDetected,
+      { source: A11Y_APPENDIX },
     ),
     "",
     "## Identifiers",
     "",
-    bullets(
+    cappedBullets(
       staticIds.map(
         (i) =>
           `\`${i.value}\` — \`${i.file}${i.start_line ? `:${i.start_line}` : ""}\``,
       ),
       tr.notDetected,
+      { source: A11Y_APPENDIX },
     ),
     ...(dynamicIds.length > 0
       ? [
           "",
           "## Dynamic (unresolvable statically)",
           "",
-          bullets(
+          cappedBullets(
             dynamicIds.map(
               (i) =>
                 `\`${i.expression}\` — \`${i.file}${i.start_line ? `:${i.start_line}` : ""}\``,
             ),
             tr.notDetected,
+            { source: A11Y_APPENDIX },
           ),
         ]
       : []),

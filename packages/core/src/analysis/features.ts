@@ -95,6 +95,14 @@ function entryPointsFor(files: AnalyzedSource[]): FeatureEntryPoint[] {
 }
 
 /**
+ * Entry points kept per feature. The detector emits one per view-role file, so
+ * a large feature would otherwise carry dozens — which dominated the model on a
+ * big repository without telling a reader anything the file list does not.
+ * The real total stays in `entry_point_count`.
+ */
+const MAX_FEATURE_ENTRY_POINTS = 8;
+
+/**
  * Derive a name prefix for clustering. Uses the leading CamelCase word of the
  * primary declared type, falling back to the filename stem's leading word.
  */
@@ -110,6 +118,9 @@ function namePrefix(f: AnalyzedSource): string | undefined {
   const match = /^[A-Z][a-z0-9]+/.exec(stripped);
   return match?.[0];
 }
+
+/** Representative evidence entries kept per feature (§3.2 stays satisfied). */
+const MAX_FEATURE_EVIDENCE = 6;
 
 /** Build features from analyzed Swift sources. */
 export function detectFeatures(input: FeatureDetectionInput): Feature[] {
@@ -197,31 +208,40 @@ function buildFeature(
     )
     .map((s) => s.path);
 
+  const allEntryPoints = entryPointsFor(files);
+  const sourceEvidence = files.map((f) => ({
+    file: f.path,
+    kind: "source" as const,
+    confidence,
+    start_line: f.analysis.types[0]?.line,
+    description: `Declares ${f.analysis.types.map((t) => t.name).join(", ") || "code"} (${f.analysis.role})`,
+  }));
+  const allEvidence = [
+    ...sourceEvidence,
+    ...testEvidence.map((path) => ({
+      file: path,
+      kind: "test" as const,
+      confidence: 0.9,
+      description: "Test coverage",
+    })),
+  ];
+
   return {
     id,
     name: featureName(id),
     status: "IMPLEMENTED",
     confidence,
-    entry_points: entryPointsFor(files),
+    entry_points: allEntryPoints.slice(0, MAX_FEATURE_ENTRY_POINTS),
+    entry_point_count: allEntryPoints.length,
     source_files: sourceFiles,
     requirements: [],
     // Populated by the model builder once every feature's files are known.
     frameworks: [],
-    evidence: [
-      ...files.map((f) => ({
-        file: f.path,
-        kind: "source" as const,
-        confidence,
-        start_line: f.analysis.types[0]?.line,
-        description: `Declares ${f.analysis.types.map((t) => t.name).join(", ") || "code"} (${f.analysis.role})`,
-      })),
-      ...testEvidence.map((path) => ({
-        file: path,
-        kind: "test" as const,
-        confidence: 0.9,
-        description: "Test coverage",
-      })),
-    ],
+    // Evidence is capped: a 50-file feature would otherwise carry 50 near
+    // identical entries, and the full file list is already in `source_files`.
+    // The count is kept so "5 of 50" is never mistaken for "5".
+    evidence: allEvidence.slice(0, MAX_FEATURE_EVIDENCE),
+    evidence_count: allEvidence.length,
   };
 }
 
@@ -236,7 +256,13 @@ function mergeById(features: Feature[]): Feature[] {
     existing.source_files = [
       ...new Set([...existing.source_files, ...f.source_files]),
     ].sort();
-    existing.entry_points = [...existing.entry_points, ...f.entry_points];
+    existing.entry_points = [...existing.entry_points, ...f.entry_points].slice(
+      0,
+      MAX_FEATURE_ENTRY_POINTS,
+    );
+    existing.entry_point_count =
+      (existing.entry_point_count ?? existing.entry_points.length) +
+      (f.entry_point_count ?? f.entry_points.length);
     existing.evidence = [...existing.evidence, ...f.evidence];
     existing.confidence = Math.max(existing.confidence, f.confidence);
   }

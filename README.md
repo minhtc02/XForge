@@ -74,7 +74,7 @@ node apps/cli/dist/index.js --cwd test-fixtures/ios-swiftui docs
 node apps/cli/dist/index.js --cwd test-fixtures/ios-swiftui inspect project --json
 ```
 
-### Install globally (optional)
+### Install globally (optional but recommended for usage)
 
 ```bash
 pnpm --filter @xforge/cli build
@@ -84,14 +84,14 @@ xforge --help
 
 ## Commands
 
-| Command                   | Description                                                                  |
-| ------------------------- | ---------------------------------------------------------------------------- |
-| `xforge init`             | Detect project type; write `.xforge/config.yaml`, state dirs and output dir. |
-| `xforge doctor`           | Environment + config health checks.                                          |
-| `xforge docs`             | Build & persist the Canonical Project Model and index doc.                   |
-| `xforge docs sync`        | Regenerate for changed files (incremental).                                  |
-| `xforge docs check`       | Detect documentation drift (exit 1 if drift).                                |
-| `xforge inspect <target>` | Print a slice of the Project Model.                                          |
+| Command                   | Description                                                                                                                                     |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `xforge init`             | Detect project type; write `.xforge/config.yaml`, state dirs and output dir.                                                                    |
+| `xforge doctor`           | Environment + config health checks.                                                                                                             |
+| `xforge docs`             | Build & persist the Canonical Project Model and index doc. If no PRD is found, it interactively asks to spawn BMAD or Spec Kit to generate one. |
+| `xforge docs sync`        | Regenerate for changed files (incremental).                                                                                                     |
+| `xforge docs check`       | Detect documentation drift (exit 1 if drift).                                                                                                   |
+| `xforge inspect <target>` | Print a slice of the Project Model.                                                                                                             |
 
 All commands support `--json` for machine-readable output and `--cwd <dir>` to
 target another directory. Global flags: `--verbose`, `--quiet`.
@@ -112,6 +112,21 @@ configuration or runtime error.
 The plugin lives in `plugins/claude/`. Its commands invoke the `xforge` CLI for
 all deterministic work and use sub-agents (`codebase-analyst`,
 `product-analyst`, `doc-writer`, `doc-reviewer`) for semantic analysis.
+
+### Installation
+
+For local development without publishing to a marketplace, launch Claude Code with the `--plugin-dir` flag:
+
+```bash
+claude --plugin-dir /path/to/xforge/plugins/claude
+```
+
+If adding via GitHub Marketplace, use the `--sparse` flag since the plugin is part of a monorepo:
+
+```bash
+claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins/claude
+/plugin install xforge
+```
 
 ## XForge Test (Autonomous iOS QA)
 

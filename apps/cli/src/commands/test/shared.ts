@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import {
   loadConfig,
-  parseProjectModelJson,
+  readProjectModel,
   scanFiles,
   statePath,
   type ProjectModel,
@@ -34,7 +34,9 @@ export async function loadTestModelContext(
       { details: { modelPath } },
     );
   }
-  const model = parseProjectModelJson(await readFile(modelPath, "utf8"));
+  // Full model: reconciliation and sharding reason over individual files,
+  // which live in the appendices rather than the core file.
+  const model = await readProjectModel(ctx.projectRoot, { full: true });
   const testConfig = await loadTestConfig(ctx.projectRoot);
   return { model, testConfig };
 }
