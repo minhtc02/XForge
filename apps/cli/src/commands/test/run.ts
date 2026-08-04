@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import { NotFoundError, ValidationError } from "@xforge/shared";
 import {
   applyVisualEscalations,
   loadDesignMap,
   runArtifactDir,
+  unreachableScreens,
   DryRunCommandRunner,
   SpawnCommandRunner,
   computeCoverage,
@@ -25,6 +26,7 @@ import {
 } from "@xforge/test-core";
 import { emitResult, type CliContext } from "../../context.js";
 import { runConformance, readProbeScreens } from "./conformance.js";
+import { exportProbeDump, exportScreenshots } from "./artifacts-export.js";
 
 export interface TestRunOptions {
   /** Actually invoke xcodebuild/simctl. Default false (dry run). */
@@ -38,6 +40,8 @@ export interface TestRunResult {
   gatePassed: boolean;
   stats: Record<string, number>;
   bugs: number;
+  /** Artifacts extracted from the result bundles. */
+  artifacts: { probe: boolean; screenshots: number };
   /** Design conformance outcome, when a comparison was possible. */
   conformance: {
     casesChecked: number;
@@ -103,22 +107,70 @@ export async function runTestRun(
 
   logger.info(dryRun ? "Starting dry run" : "Starting run", { runId, planId });
 
+  // --- Pre-flight probe ---------------------------------------------------
+  // `auto` probes only when static reconciliation left locators it could not
+  // resolve; probing when everything already matched buys nothing but time.
+  const unresolvedLocators = plan.testability_issues.some(
+    (i) => i.kind === "locator-not-statically-resolvable",
+  );
+  const probeMode = config.execution.probe_before_run;
+  const includeProbe =
+    !dryRun &&
+    (probeMode === "always" || (probeMode === "auto" && unresolvedLocators));
+
+  const probePath = join(
+    runArtifactDir(projectRoot, config.output.runs_root, runId, "probe"),
+    "xforge-probe.json",
+  );
+
   const runResult = await orchestrateRun({
     plan,
     config,
     runId,
     runner,
     dryRun,
-    // Real xcresult collection is wired in when --execute matures; for now a
-    // successful shard with no collector yields no executions (dry path used).
+    includeProbe,
+    ...(config.project.ui_test_target !== "auto"
+      ? { uiTestTarget: config.project.ui_test_target }
+      : {}),
+    // Extract the probe's attachment before the matrix runs, so an unreachable
+    // screen stops the run instead of every case behind it timing out.
+    runProbe: async (resultBundlePath) => {
+      const exported = await exportProbeDump(
+        runner,
+        resultBundlePath,
+        probePath,
+      );
+      if (!exported) return { unreachable: [] };
+      return { unreachable: unreachableScreens(exported.screens) };
+    },
   });
+
+  // Screenshots live beside the case that produced them, for the visual report.
+  const screensDir = runArtifactDir(
+    projectRoot,
+    config.output.runs_root,
+    runId,
+    "screens",
+  );
+  const screenshots: string[] = [];
+  if (!dryRun) {
+    for (const shard of plan.shards) {
+      screenshots.push(
+        ...(await exportScreenshots(
+          runner,
+          `${config.output.runs_root}/${runId}/xcresult/${shard.id}.xcresult`,
+          screensDir,
+        )),
+      );
+    }
+  }
 
   // --- Design conformance (blueprint §12) --------------------------------
   // Compares what the probe measured against the frozen Figma references, then
   // applies the project's severity policy: a missing element fails the case, a
   // size or token delta is reported. Degrades to "nothing to compare" whenever
   // a piece is absent — losing design data must not turn a run red.
-  const probePath = `${runArtifactDir(projectRoot, config.output.runs_root, runId, "probe")}/xforge-probe.json`;
   const probeScreens = await readProbeScreens(probePath);
   const conformance = await runConformance({
     projectRoot,
@@ -178,6 +230,10 @@ export async function runTestRun(
     gatePassed: runResult.gate_passed,
     stats: runResult.stats as unknown as Record<string, number>,
     bugs: bugs.length,
+    artifacts: {
+      probe: probeScreens !== undefined,
+      screenshots: screenshots.length,
+    },
     conformance: {
       casesChecked: conformance.byCase.length,
       failing: conformance.byCase.filter((c) => c.verdict.failing.length > 0)
@@ -203,6 +259,24 @@ export async function runTestRun(
         `  Infra:   ${s.infrastructure}\n  Skipped: ${s.skipped}\n  Bugs:    ${bugs.length}\n` +
         `\n  Summary: ${runFilePath(projectRoot, config.output.runs_root, runId, "summaryMarkdown")}\n`,
     );
+
+    if (!dryRun) {
+      process.stderr.write(
+        `\n  Artifacts: probe ${result.artifacts.probe ? "captured" : "not captured"}` +
+          `, ${result.artifacts.screenshots} screenshot(s)\n`,
+      );
+      const c = result.conformance;
+      if (c.skippedReason) {
+        process.stderr.write(`  Design:    skipped — ${c.skippedReason}\n`);
+      } else {
+        process.stderr.write(
+          `  Design:    ${c.casesChecked} case(s) checked` +
+            `${c.failing > 0 ? `, ${c.failing} FAILING` : ""}` +
+            `${c.warnings > 0 ? `, ${c.warnings} warning(s)` : ""}\n`,
+        );
+      }
+    }
+
     process.stderr.write("\n  Next:\n");
     if (dryRun) {
       process.stderr.write(
