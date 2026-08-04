@@ -45,6 +45,13 @@ are reported.
   for CI. Every failure path (no token, 404, network error, unfilled node)
   degrades to "no reference" rather than failing a run.
 
+- **Visual regression** — screenshots exported from the result bundles are
+  compared against approved baselines with `pngjs` + `pixelmatch`, writing a
+  diff image for anything that changed. Baselines are per shard, because the
+  same case runs on several devices and a 393pt screen never matches a 375pt
+  baseline. A screenshot with no baseline is reported, never auto-approved —
+  blessing the current look would bless the bugs already in it; accept
+  explicitly with `xforge test run <plan-id> --execute --update-baselines`.
 - **`_meta/project-model.json` is the complete model** — the published
   documentation tree stands on its own, so a reader with only `docs/` never has
   to reassemble the core file and three appendices. `.xforge/state/` keeps the

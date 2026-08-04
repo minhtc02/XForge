@@ -118,11 +118,14 @@ export function screenshotPath(
   runsRoot: string,
   runId: string,
   caseId: string,
+  /** Shard the capture came from — the same case runs on several devices. */
+  shardId: string,
   name: string,
 ): string {
   return join(
     runArtifactDir(projectRoot, runsRoot, runId, "screens"),
     caseId,
+    shardId,
     `${name}.png`,
   );
 }
@@ -131,9 +134,34 @@ export function screenshotPath(
 export function visualBaselinePath(
   projectRoot: string,
   feature: string,
+  /** Shard id: a baseline is only comparable within the same device + state. */
+  shardId: string,
   name: string,
 ): string {
-  return join(testRoot(projectRoot), "baselines", feature, `${name}.png`);
+  return join(
+    testRoot(projectRoot),
+    "baselines",
+    feature,
+    shardId,
+    `${name}.png`,
+  );
+}
+
+/** Where a diff image for one comparison is written. */
+export function visualDiffPath(
+  projectRoot: string,
+  runsRoot: string,
+  runId: string,
+  caseId: string,
+  shardId: string,
+  name: string,
+): string {
+  return join(
+    runArtifactDir(projectRoot, runsRoot, runId, "diffs"),
+    caseId,
+    shardId,
+    `${name}.png`,
+  );
 }
 
 /** Create the `.xforge/test/` skeleton. Idempotent. */

@@ -33,11 +33,13 @@
     "prepack": "pnpm run bundle"
   },
   "devDependencies": {
+    "@types/pngjs": "^6.0.5",
     "@xforge/core": "workspace:*",
     "@xforge/dev-core": "workspace:*",
     "@xforge/shared": "workspace:*",
     "@xforge/test-core": "workspace:*",
     "commander": "^13.0.0",
+    "pngjs": "^7.0.0",
     "yaml": "^2.7.0"
   }
 }

@@ -315,8 +315,20 @@ test
   .description("Run an approved plan (dry run by default; --execute for real)")
   .argument("<plan-id>", "the approved plan id")
   .option("--execute", "actually invoke xcodebuild/simctl (needs Xcode)", false)
+  .option(
+    "--update-baselines",
+    "accept this run's screenshots as the new visual baselines",
+    false,
+  )
   .action(async (planId: string, opts, cmd: Command) => {
-    await run((ctx) => runTestRun(ctx, planId, { execute: opts.execute }), cmd);
+    await run(
+      (ctx) =>
+        runTestRun(ctx, planId, {
+          execute: opts.execute,
+          updateBaselines: opts.updateBaselines,
+        }),
+      cmd,
+    );
   });
 
 test

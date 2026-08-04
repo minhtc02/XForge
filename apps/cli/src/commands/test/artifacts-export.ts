@@ -93,6 +93,12 @@ export async function exportScreenshots(
   runner: CommandRunner,
   bundlePath: string,
   screensDir: string,
+  /**
+   * Shard the bundle belongs to. Required: the same case runs on every device
+   * its types call for, so without it the second export would overwrite the
+   * first and a device-specific difference would be invisible.
+   */
+  shardId: string,
 ): Promise<string[]> {
   const root = await readBundle(runner, bundlePath);
   if (!root) return [];
@@ -102,7 +108,12 @@ export async function exportScreenshots(
     // `XForgeUITests/test_TC_ALARM_003()` → `TC_ALARM_003`, so screenshots sit
     // beside the case they belong to rather than in one flat pile.
     const caseDir = caseFolder(attachment.testIdentifier);
-    const outputPath = join(screensDir, caseDir, safeName(attachment.name));
+    const outputPath = join(
+      screensDir,
+      caseDir,
+      shardId,
+      safeName(attachment.name),
+    );
     if (await exportAttachment(runner, bundlePath, attachment, outputPath)) {
       written.push(outputPath);
     }

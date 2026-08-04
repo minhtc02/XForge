@@ -188,18 +188,40 @@ describe("exportProbeDump", () => {
 });
 
 describe("exportScreenshots", () => {
-  it("files each screenshot under the case that produced it", async () => {
+  it("files each screenshot under its case and shard", async () => {
     const screensDir = join(root, "artifacts/screens");
     const written = await exportScreenshots(
       stubRunner({ payloads: { "ATT-SHOT": "png-bytes" } }),
       "a.xcresult",
       screensDir,
+      "shard-alarm-iphone-se",
     );
     expect(written).toHaveLength(1);
     // `XForgeUITests/test_TC_ALARM_003()` → folder `TC_ALARM_003`.
     expect(await readdir(screensDir)).toEqual(["TC_ALARM_003"]);
+    expect(
+      await readdir(join(screensDir, "TC_ALARM_003", "shard-alarm-iphone-se")),
+    ).toEqual(["alarm-list.png"]);
+  });
+
+  it("keeps the same case's captures apart across shards", async () => {
+    // Without the shard segment the second device would overwrite the first,
+    // and a layout that only breaks on the small screen would be invisible.
+    const screensDir = join(root, "artifacts/screens");
+    for (const shard of [
+      "shard-alarm-iphone-se",
+      "shard-alarm-iphone-15-pro",
+    ]) {
+      await exportScreenshots(
+        stubRunner({ payloads: { "ATT-SHOT": shard } }),
+        "a.xcresult",
+        screensDir,
+        shard,
+      );
+    }
     expect(await readdir(join(screensDir, "TC_ALARM_003"))).toEqual([
-      "alarm-list.png",
+      "shard-alarm-iphone-15-pro",
+      "shard-alarm-iphone-se",
     ]);
   });
 
@@ -208,6 +230,7 @@ describe("exportScreenshots", () => {
       stubRunner({}),
       "a.xcresult",
       join(root, "screens"),
+      "shard-1",
     );
     expect(written.every((p) => p.endsWith(".png"))).toBe(true);
     expect(written).toHaveLength(1);
@@ -219,6 +242,7 @@ describe("exportScreenshots", () => {
         stubRunner({ getCode: 1 }),
         "a.xcresult",
         join(root, "screens"),
+        "shard-1",
       ),
     ).toEqual([]);
   });
@@ -229,6 +253,7 @@ describe("exportScreenshots", () => {
         stubRunner({ exportCode: 1 }),
         "a.xcresult",
         join(root, "screens"),
+        "shard-1",
       ),
     ).resolves.toEqual([]);
   });

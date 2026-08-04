@@ -27,10 +27,13 @@ import {
 import { emitResult, type CliContext } from "../../context.js";
 import { runConformance, readProbeScreens } from "./conformance.js";
 import { exportProbeDump, exportScreenshots } from "./artifacts-export.js";
+import { runVisualCheck } from "./visual-check.js";
 
 export interface TestRunOptions {
   /** Actually invoke xcodebuild/simctl. Default false (dry run). */
   execute?: boolean;
+  /** Accept this run's screenshots as the new visual baselines. */
+  updateBaselines?: boolean;
 }
 
 export interface TestRunResult {
@@ -42,6 +45,13 @@ export interface TestRunResult {
   bugs: number;
   /** Artifacts extracted from the result bundles. */
   artifacts: { probe: boolean; screenshots: number };
+  /** Visual regression outcome against the approved baselines. */
+  visual: {
+    compared: number;
+    changed: number;
+    missingBaselines: number;
+    baselinesWritten: number;
+  };
   /** Design conformance outcome, when a comparison was possible. */
   conformance: {
     casesChecked: number;
@@ -161,6 +171,7 @@ export async function runTestRun(
           runner,
           `${config.output.runs_root}/${runId}/xcresult/${shard.id}.xcresult`,
           screensDir,
+          shard.id,
         )),
       );
     }
@@ -182,10 +193,24 @@ export async function runTestRun(
       : null,
   });
 
-  const escalated = applyVisualEscalations(
-    runResult.executions,
-    conformance.escalations,
-  );
+  // --- Visual regression (blueprint §12) ---------------------------------
+  // Complements conformance: that asks "does it match the design?", this asks
+  // "did it change since we approved it?". A screenshot with no baseline is
+  // reported, never auto-approved — blessing the current look would bless the
+  // bugs already in it.
+  const visual = await runVisualCheck({
+    projectRoot,
+    plan,
+    config,
+    runId,
+    screenshots,
+    ...(options.updateBaselines ? { updateBaselines: true } : {}),
+  });
+
+  const escalated = applyVisualEscalations(runResult.executions, [
+    ...conformance.escalations,
+    ...visual.escalations,
+  ]);
   runResult.executions = escalated.executions;
   const recomputed = computeRunStats(runResult.executions);
   runResult.gate_passed = recomputed.gate_passed;
@@ -217,9 +242,13 @@ export async function runTestRun(
   await write("bugsJson", serializeJson({ bugs }));
   await write(
     "summaryMarkdown",
-    conformance.markdown
-      ? `${renderRunSummaryMarkdown(runResult, bugs)}\n${conformance.markdown}`
-      : renderRunSummaryMarkdown(runResult, bugs),
+    [
+      renderRunSummaryMarkdown(runResult, bugs),
+      conformance.markdown,
+      visual.markdown,
+    ]
+      .filter((part) => part.length > 0)
+      .join("\n"),
   );
   await write("coverageMarkdown", renderCoverageMarkdown(coverage));
 
@@ -233,6 +262,12 @@ export async function runTestRun(
     artifacts: {
       probe: probeScreens !== undefined,
       screenshots: screenshots.length,
+    },
+    visual: {
+      compared: visual.comparisons.length,
+      changed: visual.comparisons.filter((c) => c.verdict !== "PASS").length,
+      missingBaselines: visual.missingBaselines.length,
+      baselinesWritten: visual.baselinesWritten.length,
     },
     conformance: {
       casesChecked: conformance.byCase.length,
@@ -265,6 +300,18 @@ export async function runTestRun(
         `\n  Artifacts: probe ${result.artifacts.probe ? "captured" : "not captured"}` +
           `, ${result.artifacts.screenshots} screenshot(s)\n`,
       );
+      const v = result.visual;
+      if (v.baselinesWritten > 0) {
+        process.stderr.write(
+          `  Baselines: accepted ${v.baselinesWritten} screenshot(s)\n`,
+        );
+      } else if (v.compared > 0) {
+        process.stderr.write(
+          `  Visual:    ${v.compared} compared` +
+            `${v.changed > 0 ? `, ${v.changed} changed` : ""}` +
+            `${v.missingBaselines > 0 ? `, ${v.missingBaselines} without a baseline` : ""}\n`,
+        );
+      }
       const c = result.conformance;
       if (c.skippedReason) {
         process.stderr.write(`  Design:    skipped — ${c.skippedReason}\n`);
