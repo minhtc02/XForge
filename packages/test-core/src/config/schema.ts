@@ -166,6 +166,24 @@ export const VisualSection = z
     color_delta_warning: z.number().nonnegative().default(3),
     color_delta_failure: z.number().nonnegative().default(8),
     mask_dynamic_regions: z.boolean().default(true),
+    /**
+     * Compare measurements against the design (frame sizes, tokens, tap
+     * targets) using the accessibility probe. Independent of pixel diffing.
+     */
+    conformance_enabled: z.boolean().default(true),
+    /**
+     * Lowest finding severity that fails a case. `critical` — an element the
+     * design has and the app never rendered — is unambiguous, so it fails by
+     * default. Size and token deltas start as warnings: turn this down to
+     * `major` once you have seen a run and know the numbers are not noise.
+     */
+    conformance_fails_at: z
+      .enum(["critical", "major", "minor", "never"])
+      .default("critical"),
+    /** Above this many points, a size difference is major rather than minor. */
+    layout_failure_points: z.number().nonnegative().default(8),
+    /** Minimum tap target in points (Apple HIG). */
+    min_tap_points: z.number().positive().default(44),
   })
   .default({});
 export type VisualSection = z.infer<typeof VisualSection>;

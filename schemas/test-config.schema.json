@@ -72,7 +72,19 @@
       "properties": { "fail_on_deviation": { "type": "boolean" } }
     },
     "execution": { "type": "object" },
-    "visual": { "type": "object" },
+    "visual": {
+      "type": "object",
+      "properties": {
+        "conformance_enabled": { "type": "boolean" },
+        "conformance_fails_at": {
+          "description": "Lowest finding severity that fails a case. `critical` (an element the design has that the app never rendered) is unambiguous and fails by default; size and token deltas start as warnings.",
+          "enum": ["critical", "major", "minor", "never"]
+        },
+        "layout_tolerance_points": { "type": "number", "minimum": 0 },
+        "layout_failure_points": { "type": "number", "minimum": 0 },
+        "min_tap_points": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
     "performance": { "type": "object" },
     "output": { "type": "object" }
   }

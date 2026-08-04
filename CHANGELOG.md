@@ -22,6 +22,29 @@ are reported.
 
 ### Added
 
+- **Responsive testing** — visual and accessibility cases now run on every
+  configured device whose roles match, and optionally across Dynamic Type sizes
+  and appearances. Sharding previously picked one best-scoring device, so the
+  second device was never used and a layout breaking on the small screen was
+  never seen. Functional cases stay on one device. Configure under
+  `responsive`; coverage now requires a case to pass on _every_ device.
+- **Design conformance** — `xforge test design <plan-id>` freezes the Figma
+  references a plan is checked against, then a run compares the frame sizes and
+  design tokens against what the accessibility probe measured. Findings name
+  the element and the numbers ("save-button height is 32pt; the design says
+  44pt") rather than reporting a pixel percentage, and the 44pt HIG tap target
+  is enforced independently of the design.
+
+  Severity policy: an element the design has that the app never rendered fails
+  the case; size and token deltas are warnings until `visual.conformance_fails_at`
+  is lowered to `major`.
+
+  Figma data arrives by MCP first — `/xforge:test-design` has the agent fetch
+  and write the snapshot file, keeping credentials out of the CLI and planning
+  reproducible from a file. `--rest` uses the Figma REST API with `FIGMA_TOKEN`
+  for CI. Every failure path (no token, 404, network error, unfilled node)
+  degrades to "no reference" rather than failing a run.
+
 - **`_meta/project-model.json` is the complete model** — the published
   documentation tree stands on its own, so a reader with only `docs/` never has
   to reassemble the core file and three appendices. `.xforge/state/` keeps the

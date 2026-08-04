@@ -14,6 +14,7 @@ import { runTestPlan } from "./commands/test/plan.js";
 import { runTestApprove } from "./commands/test/approve.js";
 import { runTestGenerate } from "./commands/test/generate.js";
 import { runTestNavigation } from "./commands/test/navigation.js";
+import { runTestDesign } from "./commands/test/design.js";
 import { runTestRun } from "./commands/test/run.js";
 import {
   runTestBugs,
@@ -255,6 +256,27 @@ test
   .action(async (opts, cmd: Command) => {
     await run(
       (ctx) => runTestNavigation(ctx, { init: opts.init, force: opts.force }),
+      cmd,
+    );
+  });
+
+test
+  .command("design")
+  .description(
+    "Freeze the Figma references a plan is checked against (MCP by default)",
+  )
+  .argument("<plan-id>", "the plan id")
+  .option("--init", "write a template for the agent to fill via MCP", false)
+  .option("--rest", "fetch over the Figma REST API (needs FIGMA_TOKEN)", false)
+  .option("--force", "reset an existing snapshot file", false)
+  .action(async (planId: string, opts, cmd: Command) => {
+    await run(
+      (ctx) =>
+        runTestDesign(ctx, planId, {
+          init: opts.init,
+          rest: opts.rest,
+          force: opts.force,
+        }),
       cmd,
     );
   });

@@ -3,9 +3,13 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { NotFoundError, ValidationError } from "@xforge/shared";
 import {
+  applyVisualEscalations,
+  loadDesignMap,
+  runArtifactDir,
   DryRunCommandRunner,
   SpawnCommandRunner,
   computeCoverage,
+  computeRunStats,
   loadTestConfig,
   makeRunId,
   orchestrateRun,
@@ -20,6 +24,7 @@ import {
   verifyApproval,
 } from "@xforge/test-core";
 import { emitResult, type CliContext } from "../../context.js";
+import { runConformance, readProbeScreens } from "./conformance.js";
 
 export interface TestRunOptions {
   /** Actually invoke xcodebuild/simctl. Default false (dry run). */
@@ -33,6 +38,13 @@ export interface TestRunResult {
   gatePassed: boolean;
   stats: Record<string, number>;
   bugs: number;
+  /** Design conformance outcome, when a comparison was possible. */
+  conformance: {
+    casesChecked: number;
+    failing: number;
+    warnings: number;
+    skippedReason?: string;
+  };
   writtenFiles: string[];
 }
 
@@ -101,6 +113,33 @@ export async function runTestRun(
     // successful shard with no collector yields no executions (dry path used).
   });
 
+  // --- Design conformance (blueprint §12) --------------------------------
+  // Compares what the probe measured against the frozen Figma references, then
+  // applies the project's severity policy: a missing element fails the case, a
+  // size or token delta is reported. Degrades to "nothing to compare" whenever
+  // a piece is absent — losing design data must not turn a run red.
+  const probePath = `${runArtifactDir(projectRoot, config.output.runs_root, runId, "probe")}/xforge-probe.json`;
+  const probeScreens = await readProbeScreens(probePath);
+  const conformance = await runConformance({
+    projectRoot,
+    plan,
+    config,
+    ...(probeScreens ? { probeScreens } : {}),
+    designMap: config.figma.enabled
+      ? await loadDesignMap(projectRoot, config.figma.design_map)
+      : null,
+  });
+
+  const escalated = applyVisualEscalations(
+    runResult.executions,
+    conformance.escalations,
+  );
+  runResult.executions = escalated.executions;
+  const recomputed = computeRunStats(runResult.executions);
+  runResult.gate_passed = recomputed.gate_passed;
+  const { gate_passed: _gate, ...stats } = recomputed;
+  runResult.stats = stats;
+
   const bugs = triageBugs({
     executions: runResult.executions,
     cases: plan.test_cases,
@@ -124,7 +163,12 @@ export async function runTestRun(
     serializeJson({ executions: runResult.executions }),
   );
   await write("bugsJson", serializeJson({ bugs }));
-  await write("summaryMarkdown", renderRunSummaryMarkdown(runResult, bugs));
+  await write(
+    "summaryMarkdown",
+    conformance.markdown
+      ? `${renderRunSummaryMarkdown(runResult, bugs)}\n${conformance.markdown}`
+      : renderRunSummaryMarkdown(runResult, bugs),
+  );
   await write("coverageMarkdown", renderCoverageMarkdown(coverage));
 
   const result: TestRunResult = {
@@ -134,6 +178,18 @@ export async function runTestRun(
     gatePassed: runResult.gate_passed,
     stats: runResult.stats as unknown as Record<string, number>,
     bugs: bugs.length,
+    conformance: {
+      casesChecked: conformance.byCase.length,
+      failing: conformance.byCase.filter((c) => c.verdict.failing.length > 0)
+        .length,
+      warnings: conformance.byCase.reduce(
+        (n, c) => n + c.verdict.warnings.length,
+        0,
+      ),
+      ...(conformance.skippedReason
+        ? { skippedReason: conformance.skippedReason }
+        : {}),
+    },
     writtenFiles,
   };
 
