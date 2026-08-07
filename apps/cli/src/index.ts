@@ -22,6 +22,7 @@ import { runTestNavigation } from "./commands/test/navigation.js";
 import { runTestDesign } from "./commands/test/design.js";
 import { runTestRun } from "./commands/test/run.js";
 import { runTestReview } from "./commands/test/review.js";
+import { runTestSetup } from "./commands/test/setup.js";
 import {
   runTestBugs,
   runTestClean,
@@ -318,6 +319,21 @@ test
           probe: opts.probe,
           force: opts.force,
         }),
+      cmd,
+    );
+  });
+
+test
+  .command("setup")
+  .description(
+    "Create the UI test target, Info.plist and shared scheme a QA run needs",
+  )
+  .option("--dry-run", "report what would change without writing", false)
+  .option("--target <name>", "name for the UI test target")
+  .action(async (opts, cmd: Command) => {
+    await run(
+      (ctx) =>
+        runTestSetup(ctx, { dryRun: opts.dryRun, targetName: opts.target }),
       cmd,
     );
   });
