@@ -87,6 +87,8 @@ export const Provenance = z.enum([
   "figma",
   "git-diff",
   "inference",
+  /** Authored by a reviewer (agent or human) via `xforge test review apply`. */
+  "review",
   "UNKNOWN",
   "INFERRED",
   "NEEDS_CONFIRMATION",

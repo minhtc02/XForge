@@ -176,6 +176,7 @@ export function buildTestPlan(input: BuildPlanInput): BuildPlanOutput {
       by_type: byType,
     },
     inputs: input.inputs,
+    applied_reviews: [],
     sources: {
       project_model: true,
       prd: input.model.requirements.length > 0,

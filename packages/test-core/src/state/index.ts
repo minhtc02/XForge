@@ -27,6 +27,8 @@ export const PLAN_FILES = {
   testabilityReport: "testability-report.md",
   permissions: "permissions.md",
   approval: "approval.json",
+  /** Reviewer verdicts an agent fills in; applied by `test review apply`. */
+  review: "review.json",
 } as const;
 
 export function planFilePath(
