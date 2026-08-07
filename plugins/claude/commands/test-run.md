@@ -19,8 +19,11 @@ approved plan.
    xforge test approve $ARGUMENTS --verify --json
    ```
 
-   If it is not approved or is stale, stop and tell the user to re-plan/approve.
-   Do not proceed.
+   `xforge test plan` approves by default, so a plan usually arrives here
+   already approved. An approval is bound to the plan hash and goes **stale by
+   design** when the model or plan inputs change — that is correct behaviour,
+   not a bug. If it is stale or was never approved, stop and tell the user to
+   re-plan (or re-approve); do not approve on their behalf and proceed.
 
 2. Run:
 
@@ -30,7 +33,11 @@ approved plan.
 
    By default this is a **dry run** — it records the exact build-once +
    test-without-building command plan and writes run artifacts, without invoking
-   Xcode. Pass `--execute` only on a Mac with Xcode and a UI-testable app.
+   Xcode. Pass `--execute` only on a Mac with Xcode and a UI-testable app whose
+   targets actually contain the generated sources. If `test plan` reported
+   `xcodeIntegration.method: none`, `--execute` will build an app that has no
+   XForge tests in it — check that first rather than diagnosing the empty result
+   afterwards.
 
 3. The orchestrator builds once, then runs one shard per feature, continues on
    individual case failure, and retries infrastructure failures per config. Do
