@@ -1,6 +1,7 @@
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it } from "vitest";
 import { createLogger } from "@xforge/shared";
-import { canPrompt } from "./prompt.js";
+import { canPrompt, selectOne } from "./prompt.js";
 import type { CliContext } from "./context.js";
 
 /**
@@ -59,5 +60,44 @@ describe("canPrompt", () => {
   it("never prompts when neither is a terminal", () => {
     setTty(false, false);
     expect(canPrompt(ctx(false))).toBe(false);
+  });
+});
+
+describe("selectOne with no input", () => {
+  /**
+   * `canPrompt` can say yes and stdin still end before an answer arrives —
+   * Ctrl+D, or a wrapper that closes the pipe. Readline rejects there, and an
+   * unhandled rejection would abort a generation run over a lost keystroke.
+   */
+  it("falls back to the default when stdin closes mid-question", async () => {
+    const stdin = new PassThrough();
+    const stderr = new PassThrough();
+    stderr.resume();
+    const originalStdin = Object.getOwnPropertyDescriptor(process, "stdin");
+    const originalStderr = Object.getOwnPropertyDescriptor(process, "stderr");
+    Object.defineProperty(process, "stdin", {
+      value: stdin,
+      configurable: true,
+    });
+    Object.defineProperty(process, "stderr", {
+      value: stderr,
+      configurable: true,
+    });
+    try {
+      const answer = selectOne(
+        "Pick one",
+        [
+          { value: "a", label: "A" },
+          { value: "b", label: "B" },
+        ],
+        1,
+      );
+      stdin.end(); // EOF before anything is typed.
+      await expect(answer).resolves.toBe("b");
+    } finally {
+      if (originalStdin) Object.defineProperty(process, "stdin", originalStdin);
+      if (originalStderr)
+        Object.defineProperty(process, "stderr", originalStderr);
+    }
   });
 });
