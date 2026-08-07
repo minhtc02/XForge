@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { configPath, loadConfig, stateRoot } from "@xforge/core";
+import { configPath, globRootDir, loadConfig, stateRoot } from "@xforge/core";
 import { ExitCode, type Logger } from "@xforge/shared";
 import { emitResult, type CliContext } from "../context.js";
 
@@ -80,6 +80,34 @@ export async function runDoctor(ctx: CliContext): Promise<DoctorResult> {
           ? cfg.output.root
           : `missing: ${cfg.output.root}`,
       });
+
+      // The project's own documents — the default source of truth for `docs`.
+      const projectDocsRoot =
+        globRootDir(cfg.sources.project_docs[0] ?? "") ?? "docs/project";
+      const projectDocsDir = join(projectRoot, projectDocsRoot);
+      checks.push({
+        name: "Project docs (source)",
+        status: existsSync(projectDocsDir) ? "ok" : "warn",
+        detail: existsSync(projectDocsDir)
+          ? projectDocsRoot
+          : `missing: ${projectDocsRoot} — \`docs\` will have no intent to compare against`,
+      });
+
+      // Reading and writing the same tree makes a run agree with itself.
+      const outputRoot = cfg.output.root.replace(/\/+$/, "");
+      const overlaps =
+        outputRoot === projectDocsRoot ||
+        outputRoot.startsWith(`${projectDocsRoot}/`);
+      if (overlaps) {
+        checks.push({
+          name: "Docs input/output separation",
+          status: "fail",
+          detail:
+            `output.root (${outputRoot}) is inside the project docs tree ` +
+            `(${projectDocsRoot}); \`docs\` would read its own output as ` +
+            "requirements. Run `xforge upgrade` for the fix.",
+        });
+      }
     } catch (e) {
       checks.push({
         name: "XForge config",

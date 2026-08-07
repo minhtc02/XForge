@@ -3,7 +3,7 @@ import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { configPath, loadConfig, statePath } from "@xforge/core";
+import { configPath, globRootDir, loadConfig, statePath } from "@xforge/core";
 import { ExitCode } from "@xforge/shared";
 import { loadDevConfig, worktreeRoot } from "@xforge/dev-core";
 import { emitResult, type CliContext } from "../../context.js";
@@ -96,14 +96,24 @@ export async function runDevDoctor(ctx: CliContext): Promise<DevDoctorResult> {
       : "using defaults",
   });
 
-  // Docs paths.
-  const docsRoot = join(projectRoot, "docs/project");
+  // Docs paths. Dev treats the project's own documents as the spec, so check
+  // the tree the config actually points at. `doctor` must survive a missing or
+  // invalid config — reporting that is its job — so fall back to the default.
+  let projectDocsRoot = "docs/project";
+  try {
+    const config = await loadConfig(projectRoot);
+    projectDocsRoot =
+      globRootDir(config.sources.project_docs[0] ?? "") ?? projectDocsRoot;
+  } catch {
+    // Already reported by the "XForge config" checks above.
+  }
+  const docsRoot = join(projectRoot, projectDocsRoot);
   checks.push({
     name: "Docs (source of truth)",
     status: existsSync(docsRoot) ? "ok" : "warn",
     detail: existsSync(docsRoot)
-      ? "docs/project"
-      : "no docs/project (docs are default source)",
+      ? projectDocsRoot
+      : `no ${projectDocsRoot} (docs are the default source)`,
   });
 
   // Worktree root writability (never inside main source).

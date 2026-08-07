@@ -5,6 +5,7 @@ import { XFORGE_VERSION, type Logger } from "@xforge/shared";
 import {
   appendixDir,
   detectProject,
+  globRootDir,
   loadConfig,
   parsePlist,
   plistFacts,
@@ -12,6 +13,7 @@ import {
   scanFiles,
   statePath,
   type DetectionResult,
+  type XForgeConfig,
 } from "@xforge/core";
 import {
   ensureTestDirs,
@@ -68,7 +70,7 @@ export async function runUpgrade(
   options: UpgradeOptions = {},
 ): Promise<UpgradeResult> {
   const { projectRoot, logger } = ctx;
-  await loadConfig(projectRoot); // fails clearly when not initialized
+  const config = await loadConfig(projectRoot); // fails clearly when not initialized
 
   const detection = await detect(projectRoot);
   const testConfigExisted = existsSync(testConfigPath(projectRoot));
@@ -142,6 +144,25 @@ export async function runUpgrade(
     });
   }
 
+  // A project initialized before the input/output split writes into
+  // `docs/project`, which is now the tree `docs` *reads* as its source of
+  // truth. Left alone, the next run would parse XForge's own generated prose
+  // into requirements and report perfect coverage of them. This is the one
+  // upgrade the tool cannot make for you: moving generated files is safe, but
+  // choosing where a project keeps its documentation is not our decision.
+  const overlap = overlappingDocTrees(config);
+  if (overlap) {
+    actions.push({
+      what:
+        `output.root (${overlap.output}) is inside sources.project_docs ` +
+        `(${overlap.glob}), so \`xforge docs\` would read its own output as ` +
+        "the project's requirements. Point output.root at a separate tree " +
+        "— docs/xforge is the new default — and keep your own documents " +
+        "where they are.",
+      run: "edit .xforge/config.yaml: output.root: docs/xforge",
+    });
+  }
+
   const result: UpgradeResult = {
     projectRoot,
     dryRun: Boolean(options.dryRun),
@@ -158,6 +179,25 @@ export async function runUpgrade(
     render(logger, result, projectRoot),
   );
   return result;
+}
+
+/**
+ * Detect the pre-split layout: XForge writing into the tree it now reads as the
+ * project's source of truth. Returns the offending pair, or undefined when the
+ * two trees are properly separate.
+ */
+function overlappingDocTrees(
+  config: XForgeConfig,
+): { output: string; glob: string } | undefined {
+  const output = config.output.root.replace(/\/+$/, "");
+  for (const glob of config.sources.project_docs) {
+    const docsRoot = globRootDir(glob);
+    if (!docsRoot) continue;
+    if (output === docsRoot || output.startsWith(`${docsRoot}/`)) {
+      return { output, glob };
+    }
+  }
+  return undefined;
 }
 
 /** Re-run detection with the same inputs `init` uses. */

@@ -60,7 +60,7 @@ export async function runDevPlan(
     );
   }
 
-  const { model, devConfig } = await loadDevModelContext(ctx);
+  const { model, devConfig, config } = await loadDevModelContext(ctx);
   const feature = model.features.find(
     (f) => f.id.toLowerCase() === options.feature!.toLowerCase(),
   );
@@ -71,10 +71,13 @@ export async function runDevPlan(
   }
 
   // Collect documented facts + doc contents for override detection + hashing.
-  const { facts, docs } = await collectDocFacts(projectRoot, [
-    "docs/project/**/*.md",
-    "docs/**/*.md",
-  ]);
+  // Only the project's own tree counts as spec. This deliberately no longer
+  // sweeps `docs/**`: that would now pull in XForge's own output, and a run
+  // that reads its generated text as documented intent just agrees with itself.
+  const { facts, docs } = await collectDocFacts(
+    projectRoot,
+    config.sources.project_docs,
+  );
 
   const effectiveSpec = resolveEffectiveSpec({
     feature: feature.id,

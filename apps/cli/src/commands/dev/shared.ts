@@ -7,6 +7,7 @@ import {
   scanFiles,
   statePath,
   type ProjectModel,
+  type XForgeConfig,
 } from "@xforge/core";
 import { NotFoundError } from "@xforge/shared";
 import {
@@ -29,12 +30,14 @@ import type { CliContext } from "../../context.js";
 export interface DevModelContext {
   model: ProjectModel;
   devConfig: DevConfig;
+  /** The XForge config, so callers read doc globs instead of hardcoding them. */
+  config: XForgeConfig;
 }
 
 export async function loadDevModelContext(
   ctx: CliContext,
 ): Promise<DevModelContext> {
-  await loadConfig(ctx.projectRoot); // ensures XForge is initialized
+  const config = await loadConfig(ctx.projectRoot); // ensures XForge is initialized
   const modelPath = statePath(ctx.projectRoot, "projectModel");
   if (!existsSync(modelPath)) {
     throw new NotFoundError(
@@ -46,7 +49,7 @@ export async function loadDevModelContext(
   // which live in the appendices rather than the core file.
   const model = await readProjectModel(ctx.projectRoot, { full: true });
   const devConfig = await loadDevConfig(ctx.projectRoot);
-  return { model, devConfig };
+  return { model, devConfig, config };
 }
 
 /** Load a persisted plan (and its Staged Spec, if present) by id. */

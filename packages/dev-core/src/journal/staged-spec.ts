@@ -74,7 +74,10 @@ export function buildProposedPatches(
 ): ProposedDocPatch[] {
   const byDoc = new Map<string, string[]>();
   for (const d of differences) {
-    const docPath = d.doc_paths[0] ?? "docs/project/_meta/staged-spec.md";
+    // A difference with no doc behind it still has to land somewhere a human
+    // will see it. That is the project's own docs tree — never XForge's output,
+    // which the next `docs` run would overwrite.
+    const docPath = d.doc_paths[0] ?? "docs/project/staged-spec.md";
     const line = d.docs_value
       ? `- ${d.target}: ${d.docs_value} → ${d.effective_value}`
       : `- ${d.target}: (new) ${d.effective_value}`;

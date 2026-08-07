@@ -184,4 +184,31 @@ describe("runUpgrade", () => {
     );
     expect(ignoreAction?.what).toContain("qa-runs/");
   });
+
+  it("flags a pre-split layout that writes into the tree it now reads", async () => {
+    await scaffold(root);
+    await runInit(ctx(root), {});
+    // What every project initialized before the input/output split looks like:
+    // output.root is the same tree `docs` now treats as the source of truth.
+    const cfgPath = join(root, ".xforge/config.yaml");
+    const cfg = await readFile(cfgPath, "utf8");
+    await writeFile(
+      cfgPath,
+      cfg.replace("root: docs/xforge", "root: docs/project"),
+    );
+
+    const result = await runUpgrade(ctx(root), { dryRun: true });
+    const action = result.actions.find((a) => a.what.includes("output.root"));
+    expect(action?.what).toContain("read its own output");
+    expect(action?.run).toContain("docs/xforge");
+  });
+
+  it("does not flag the default layout", async () => {
+    await scaffold(root);
+    await runInit(ctx(root), {});
+    const result = await runUpgrade(ctx(root), { dryRun: true });
+    expect(result.actions.some((a) => a.what.includes("output.root"))).toBe(
+      false,
+    );
+  });
 });
