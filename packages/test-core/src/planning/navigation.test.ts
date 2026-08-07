@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   ROOT_NODE,
   deriveGraphFromModel,
@@ -255,5 +256,35 @@ describe("renderNavigationYaml", () => {
     expect(yaml).toContain("root: root");
     expect(yaml).toContain("provenance: explicit");
     expect(yaml).toContain("# XForge Test navigation graph.");
+  });
+
+  it("survives a graph with no nodes or edges", () => {
+    // A project whose features declare no entry points scaffolds an empty
+    // graph. Written as a bare `edges:`, YAML parses that back as null and the
+    // schema rejected it — so `test plan` crashed on the file it had just
+    // written, with a Zod error naming a field the user never touched.
+    const empty: NavigationGraph = {
+      schema_version: 1,
+      root: ROOT_NODE,
+      nodes: [],
+      edges: [],
+    };
+    const yaml = renderNavigationYaml(empty);
+    expect(yaml).toContain("nodes: []");
+    expect(yaml).toContain("edges: []");
+
+    const parsed = parseNavigationGraph(parseYaml(yaml));
+    expect(parsed.nodes).toEqual([]);
+    expect(parsed.edges).toEqual([]);
+  });
+
+  it("reads a hand-written graph that leaves a section blank", () => {
+    // Someone editing the file by hand will delete the entries under `edges:`
+    // long before they think to write `edges: []`.
+    const parsed = parseNavigationGraph(
+      parseYaml("schema_version: 1\nroot: root\nnodes:\nedges:\n"),
+    );
+    expect(parsed.nodes).toEqual([]);
+    expect(parsed.edges).toEqual([]);
   });
 });

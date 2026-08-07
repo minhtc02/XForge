@@ -223,8 +223,10 @@ export function renderNavigationYaml(graph: NavigationGraph): string {
     "# treating it as something you vouched for rather than something it guessed.",
     "schema_version: 1",
     `root: ${graph.root}`,
-    "nodes:",
   ];
+  // `nodes:` with nothing under it parses back as null, so an empty list has to
+  // be written explicitly.
+  lines.push(graph.nodes.length === 0 ? "nodes: []" : "nodes:");
   for (const node of graph.nodes) {
     lines.push(`  - id: ${node.id}`);
     lines.push(`    anchor: ${JSON.stringify(node.anchor)}`);
@@ -232,7 +234,7 @@ export function renderNavigationYaml(graph: NavigationGraph): string {
     lines.push(`    provenance: ${node.provenance}`);
     lines.push(`    confidence: ${node.confidence}`);
   }
-  lines.push("edges:");
+  lines.push(graph.edges.length === 0 ? "edges: []" : "edges:");
   for (const edge of graph.edges) {
     lines.push(`  - from: ${edge.from}`);
     lines.push(`    to: ${edge.to}`);

@@ -50,8 +50,17 @@ export const NavigationGraph = z.object({
   schema_version: z.literal(1).default(1),
   /** Node id the app starts at after launch. */
   root: z.string().min(1),
-  nodes: z.array(NavNode).default([]),
-  edges: z.array(NavEdge).default([]),
+  // An empty YAML sequence parses to null, not []. A scaffolded graph for a
+  // project with no detected entry points is exactly that, so treat null as
+  // empty rather than rejecting a file XForge itself just wrote.
+  nodes: z
+    .array(NavNode)
+    .nullish()
+    .transform((v) => v ?? []),
+  edges: z
+    .array(NavEdge)
+    .nullish()
+    .transform((v) => v ?? []),
 });
 export type NavigationGraph = z.infer<typeof NavigationGraph>;
 
