@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/test-a11y-proposal.schema.json",
+  "title": "XForge Accessibility Identifier Proposal",
+  "description": "Schema for .xforge/test/plans/<plan-id>/a11y-proposal.json — proposed accessibilityIdentifier edits, each requiring an explicit approval before `xforge test a11y --apply` writes it to product source.",
+  "type": "object",
+  "required": ["plan_id", "requests"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "plan_id": { "type": "string", "pattern": "^XFPLAN-" },
+    "plan_hash": {
+      "type": "string",
+      "description": "Provenance only. Not a staleness gate: an identifier the plan no longer needs is a harmless extra line, whereas source that has moved is the real risk — which anchor_text guards."
+    },
+    "requests": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/request" }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "site": {
+      "type": "object",
+      "required": [
+        "file",
+        "element_line",
+        "kind",
+        "anchor_line",
+        "anchor_text"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Repo-relative Swift file."
+        },
+        "element_line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based line the element expression starts on — what a reviewer should read."
+        },
+        "element": {
+          "type": "string",
+          "description": "The element as written, e.g. `Button(\"Save\") {`."
+        },
+        "kind": {
+          "type": "string",
+          "description": "Button, TextField, Text, … Containers are never proposed."
+        },
+        "anchor_line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based line the modifier is inserted after: where the element expression's brackets balance. Not the same as element_line for a multi-line element."
+        },
+        "anchor_text": {
+          "type": "string",
+          "description": "What anchor_line said when the proposal was written. --apply refuses when it no longer matches."
+        },
+        "indent": {
+          "type": "string",
+          "description": "Exact leading whitespace for the inserted line, taken from the element's existing modifier chain."
+        }
+      },
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "required": ["locator"],
+      "properties": {
+        "locator": {
+          "type": "string",
+          "description": "The identifier the generated tests will look for."
+        },
+        "affected_cases": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Cases that fail by timeout until it exists."
+        },
+        "intent": {
+          "type": "string",
+          "description": "What the cases do with the locator — the requirement the site has to satisfy."
+        },
+        "approved": {
+          "type": "boolean",
+          "default": false,
+          "description": "Set true to have --apply write this entry. Nothing else opts in; there is no flag that applies everything."
+        },
+        "site": { "$ref": "#/definitions/site" },
+        "basis": {
+          "enum": ["label-match", "only-unidentified-element", "manual"],
+          "description": "Why the site was suggested. `label-match` means a string matched, not that the element is correct."
+        },
+        "candidates": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/site" },
+          "description": "Other unidentified elements in the candidate files, for a human to choose from."
+        },
+        "note": {
+          "type": "string",
+          "description": "Why nothing was suggested, or that the candidate list was capped."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -6,6 +6,7 @@ import { ApprovalManifest } from "./approval.js";
 import { RunResult } from "./result.js";
 
 export * from "./enums.js";
+export * from "./a11y.js";
 export * from "./test-case.js";
 export * from "./navigation.js";
 export * from "./review.js";

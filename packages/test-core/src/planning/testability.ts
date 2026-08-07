@@ -162,7 +162,7 @@ export function analyzeTestability(
       affected_cases: [],
       remediation: readOnly
         ? "Read-only mode cannot add identifiers; affected cases will be BLOCKED."
-        : "Add DEBUG-only accessibilityIdentifier values via a test-support patch.",
+        : "Add accessibilityIdentifier values to the elements under test — `xforge test a11y <plan-id>` proposes one edit per missing locator for you to approve.",
       blocks_automation: readOnly,
     });
   }
@@ -233,8 +233,14 @@ export function analyzeTestability(
         description: `DEVIATION: ${byLocator.length} locator(s) are not declared as an accessibilityIdentifier anywhere in source: ${byLocator.join(", ")}. Tests using them can only fail by timeout.`,
         severity: "critical",
         affected_cases: [...new Set(missing.map((d) => d.case_id))].sort(),
+        // The locators themselves, so a consumer does not have to parse them
+        // back out of the description — `xforge test a11y` proposes an edit for
+        // each one.
+        subjects: byLocator,
         remediation:
-          "Add the missing accessibilityIdentifier values to the views (test-support mode can patch them DEBUG-only), or correct the plan's targets.",
+          "Run `xforge test a11y <plan-id>` to get a proposed edit per locator, approve the " +
+          "ones that name the right element, then `--apply`. Or correct the plan's targets, " +
+          "if the identifier is wrong rather than missing.",
         blocks_automation: readOnly,
       });
     }

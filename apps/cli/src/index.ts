@@ -21,6 +21,7 @@ import { runTestGenerate } from "./commands/test/generate.js";
 import { runTestNavigation } from "./commands/test/navigation.js";
 import { runTestDesign } from "./commands/test/design.js";
 import { runTestRun } from "./commands/test/run.js";
+import { runTestA11y } from "./commands/test/a11y.js";
 import { runTestReview } from "./commands/test/review.js";
 import { runTestSetup } from "./commands/test/setup.js";
 import {
@@ -326,7 +327,7 @@ test
 test
   .command("setup")
   .description(
-    "Create the UI test target, Info.plist and shared scheme a QA run needs",
+    "Make a project QA-able: UI test target, shared scheme, test-support file and its call site",
   )
   .option("--dry-run", "report what would change without writing", false)
   .option("--target <name>", "name for the UI test target")
@@ -334,6 +335,35 @@ test
     await run(
       (ctx) =>
         runTestSetup(ctx, { dryRun: opts.dryRun, targetName: opts.target }),
+      cmd,
+    );
+  });
+
+test
+  .command("a11y")
+  .description(
+    "Propose accessibilityIdentifier edits for locators missing from source (--apply writes the approved ones)",
+  )
+  .argument("<plan-id>")
+  .option("--apply", "write the entries marked approved", false)
+  .option(
+    "--force",
+    "rebuild an existing proposal against current source",
+    false,
+  )
+  .option(
+    "--max-candidates <n>",
+    "alternatives to list per locator (default 8)",
+    (v: string) => Number.parseInt(v, 10),
+  )
+  .action(async (planId: string, opts, cmd: Command) => {
+    await run(
+      (ctx) =>
+        runTestA11y(ctx, planId, {
+          apply: opts.apply,
+          force: opts.force,
+          maxCandidates: opts.maxCandidates,
+        }),
       cmd,
     );
   });

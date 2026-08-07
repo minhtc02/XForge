@@ -234,6 +234,7 @@ export function applyPlanReview(input: ApplyReviewInput): ApplyReviewOutput {
     added: addedCases.map((c) => c.id),
     verdicts: review.cases.filter((r) => byId.has(r.case_id)),
     navigation_findings: review.navigation_findings,
+    required_identifiers: review.required_identifiers,
   };
 
   const nextPlan: TestPlan = {

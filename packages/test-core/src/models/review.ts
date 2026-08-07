@@ -129,6 +129,18 @@ export const AddedCase = z.object({
 });
 export type AddedCase = z.infer<typeof AddedCase>;
 
+/**
+ * An `accessibilityIdentifier` the app needs before a case can work. The file
+ * is where the reviewer thinks it belongs; `xforge test a11y` decides whether it
+ * can name an element in there precisely enough to propose an edit.
+ */
+export const RequiredIdentifier = z.object({
+  identifier: z.string().min(1),
+  file: z.string().min(1),
+  note: z.string().optional(),
+});
+export type RequiredIdentifier = z.infer<typeof RequiredIdentifier>;
+
 /** A navigation fact the reviewer confirmed by reading the source. */
 export const NavigationFinding = z.object({
   /** Screen type or node the finding is about. */
@@ -160,17 +172,14 @@ export const PlanReview = z.object({
   navigation_findings: z.array(NavigationFinding).default([]),
   /**
    * Accessibility identifiers the reviewer says the app needs before these
-   * cases can work. Recorded, never applied — XForge does not edit product code.
+   * cases can work.
+   *
+   * Still never applied from here — a review merges into a *plan*, and product
+   * source is not part of a plan. They are carried into the applied record so
+   * `xforge test a11y` can propose them as edits, which is where a product-code
+   * change gets its own approval instead of riding along with a plan merge.
    */
-  required_identifiers: z
-    .array(
-      z.object({
-        identifier: z.string().min(1),
-        file: z.string().min(1),
-        note: z.string().optional(),
-      }),
-    )
-    .default([]),
+  required_identifiers: z.array(RequiredIdentifier).default([]),
 });
 export type PlanReview = z.infer<typeof PlanReview>;
 
@@ -193,5 +202,11 @@ export const AppliedReview = z.object({
   /** Verdicts in full, so the reasoning survives in the plan itself. */
   verdicts: z.array(CaseReview).default([]),
   navigation_findings: z.array(NavigationFinding).default([]),
+  /**
+   * Identifiers the reviewer said the app needs. Kept because the review file is
+   * deleted once applied, and this is the only surviving record of a request
+   * `xforge test a11y` still has to act on.
+   */
+  required_identifiers: z.array(RequiredIdentifier).default([]),
 });
 export type AppliedReview = z.infer<typeof AppliedReview>;

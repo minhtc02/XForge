@@ -29,6 +29,11 @@ export const PLAN_FILES = {
   approval: "approval.json",
   /** Reviewer verdicts an agent fills in; applied by `test review apply`. */
   review: "review.json",
+  /**
+   * Proposed `accessibilityIdentifier` edits, each awaiting an explicit
+   * `approved: true` before `test a11y --apply` will write it to product source.
+   */
+  a11yProposal: "a11y-proposal.json",
 } as const;
 
 export function planFilePath(
