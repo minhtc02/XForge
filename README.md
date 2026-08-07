@@ -246,6 +246,7 @@ app.
 
 ```bash
 xforge test doctor                          # environment + config health
+xforge test setup                           # create the UI test target if there is none
 xforge test plan --feature alarm --level smoke
 xforge test review XFPLAN-20260729-001      # settle dead-code questions, fix the plan
 xforge test run XFPLAN-20260729-001         # dry run (add --execute for real)
@@ -272,6 +273,30 @@ then triages results into **deduplicated, requirement-linked bug reports**
 (infrastructure failures are never reported as product bugs, §4.4) and writes
 `qa-runs/<run-id>/` (`summary.md/json`, `test-results.json`, `bugs.json`,
 `coverage.md`).
+
+### Making a project testable at all
+
+XCUITest drives the app from a **separate process** through the accessibility
+APIs, and iOS grants that only to a bundle whose product type is
+`com.apple.product-type.bundle.ui-testing`. There is no way to run these tests
+from the app target — that is an OS boundary, not an Xcode convention — so a
+project without a UI test target cannot be QA'd, and `test doctor` reports a
+blocker.
+
+`xforge test setup` creates one, plus the bundle's `Info.plist` and a shared
+scheme (`xcodebuild -scheme` cannot see a scheme that lives in `xcuserdata`):
+
+```bash
+xforge test setup --dry-run   # what would change
+xforge test setup             # do it
+```
+
+This edits `project.pbxproj`, the one file where a bad write does not fail
+loudly — it makes Xcode refuse to open the project. So the edit is backed up
+first, verified structurally before it is written and again afterwards, and
+restored from the backup on any surprise. It is also idempotent: a project that
+already has a UI test target is left alone. Check `git diff -- '*.pbxproj'`
+before committing.
 
 ### What silently costs coverage
 

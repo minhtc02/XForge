@@ -6,6 +6,34 @@ All notable changes to XForge are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — `xforge test setup`
+
+A project with no UI test target cannot be QA'd at all. XCUITest drives the app
+from a separate process through the accessibility APIs, and iOS grants that only
+to a bundle whose product type is `com.apple.product-type.bundle.ui-testing` —
+an OS boundary, not an Xcode convention, so there is no way to run these tests
+from the app target. `test doctor` reported the blocker and every plan stopped
+there, leaving the user to click through Xcode.
+
+`xforge test setup` creates the target, the bundle's `Info.plist` and a shared
+scheme (`xcodebuild -scheme` cannot see a scheme in `xcuserdata`), then records
+what it resolved in the QA config.
+
+It edits `project.pbxproj`, which is the one file where a bad write does not
+fail loudly — it makes Xcode refuse to open the project. So: the original is
+backed up, the result is verified structurally _before_ it is written and again
+after, and anything unexpected restores the backup and reports why. Creating a
+target is a much bigger edit than adding a file (build-configuration list, two
+build phases, a product reference, `TEST_TARGET_NAME`, an entry in the project's
+target list), so every anchor is located explicitly and a missing one refuses
+the whole edit rather than writing something half-wired.
+
+`--dry-run` reports what would change. Re-running is a no-op.
+
+`/xforge:test-review` now handles this before it starts reviewing: a missing UI
+test target is not a question about the source, it is missing infrastructure,
+and no amount of investigating call sites answers it.
+
 ### Added — the planner can now be told it is wrong
 
 XForge's test planner reasons from declarations: it sees a screen type and

@@ -133,7 +133,7 @@ export PATH="$HOME/.local/bin:$PATH"
 pnpm build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test
 ```
 
-Current baseline: **563 tests across 61 files, all green.** `pnpm test` takes
+Current baseline: **583 tests across 63 files, all green.** `pnpm test` takes
 ~10s; there is no reason to skip it.
 
 Run the CLI without installing: `pnpm --filter @xforge/cli dev -- <args>`
@@ -178,7 +178,8 @@ decision the user already made.
 never overwriting a value the project set. `init --force` does regenerate and
 would discard hand edits; keep that distinction.
 
-**Test**: `doctor`, `plan`, `navigation`, `design`, `generate`, `review`, `approve`, `run`,
+**Test**: `doctor`, `setup`, `plan`, `navigation`, `design`, `generate`, `review`,
+`approve`, `run`,
 `status`, `report`, `bugs`, `clean`. `test plan` is a pipeline — it preflights,
 scaffolds navigation, plans, generates XCUITest sources, wires them into the
 Xcode targets and approves, each step disableable with a `--no-*` flag.

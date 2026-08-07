@@ -31,9 +31,40 @@ runs.
    cannot decide: screens nothing refers to, template actions it could not
    validate, critical testability issues. Treat each as a task, not a prompt.
 
-2. **Investigate each question against the source.** Do not answer from the
-   Project Model — that model is what produced the question. Use `Grep` for the
-   type name and read what you find:
+2. **Handle the missing-infrastructure questions first — they are not review
+   questions.** Some blockers are answered by building something, not by reading
+   source:
+
+   - `missing-ui-test-target` — the project has no UI test bundle. XCUITest
+     drives the app from a separate process through the accessibility APIs, and
+     iOS grants that only to a target whose product type is
+     `com.apple.product-type.bundle.ui-testing`. There is no way to run these
+     tests from the app target; it is an OS boundary, not a convention. Fix it:
+
+     ```bash
+     xforge test setup --dry-run   # show what would change
+     xforge test setup             # create target + Info.plist + shared scheme
+     ```
+
+     This edits `project.pbxproj`. It backs the file up first, verifies the
+     result structurally before and after writing, and restores the backup on
+     any surprise — but tell the user it happened and point them at
+     `git diff -- '*.pbxproj'`. Never hand-edit that file yourself; a lost
+     cross-reference makes Xcode refuse to open the project.
+
+   - `missing-accessibility-identifiers` / `locator-not-found-in-source` — the
+     app is missing the identifiers the tests locate elements by. Add them to
+     the views: put the identifier on the element under test, not its container,
+     and derive it from stable data (`"lesson-\(lesson.id)"`), never from an
+     array index. Then re-run `xforge docs` so the model sees them.
+
+   After `test setup`, re-plan: `xforge test plan --level smoke`. The plan you
+   were reviewing was built when the project could not be tested at all, so its
+   case ids no longer mean the same thing.
+
+3. **Investigate each remaining question against the source.** Do not answer
+   from the Project Model — that model is what produced the question. Use `Grep`
+   for the type name and read what you find:
 
    - Only match is the declaration → the screen is unreachable; every case
      aimed at it is testing dead code.
@@ -48,13 +79,13 @@ runs.
    `reachable: false` only when the evidence supports it — otherwise leave the
    case alone and say why in the summary.
 
-3. **Find the real entry point.** When a feature's screen turns out to be dead,
+4. **Find the real entry point.** When a feature's screen turns out to be dead,
    the interesting question is what the user _does_ see instead. Locate the live
    screen, and prefer retargeting a case to it over dropping the case outright —
    a dropped case leaves a coverage hole, a retargeted one tests the shipped
    app.
 
-4. Fill in `.xforge/test/plans/<plan-id>/review.json`:
+5. Fill in `.xforge/test/plans/<plan-id>/review.json`:
 
    - `keep` — the case is sound.
    - `drop` — it tests something unreachable or an action the screen does not
@@ -78,7 +109,7 @@ runs.
    before these cases can work. **Record them; do not add them.** Editing
    product source is not this command's job.
 
-5. Apply. If the user asked you to take it all the way to a run, add
+6. Apply. If the user asked you to take it all the way to a run, add
    `--approve`:
 
    ```bash
@@ -105,7 +136,7 @@ runs.
    ("reached via `NavigationLink` in `Router.swift:42`") is a real answer and
    passes.
 
-6. Report: what you dropped and why, what you retargeted and to where, what you
+7. Report: what you dropped and why, what you retargeted and to where, what you
    added, and which questions you could not settle. If `--approve` refused,
    relay `unresolved` verbatim — that list is the work still outstanding.
 

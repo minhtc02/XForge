@@ -298,6 +298,7 @@ Xcode chỉ được gọi khi thêm `--execute` trên máy macOS có app hỗ t
 
 ```bash
 xforge test doctor
+xforge test setup
 xforge test plan --feature alarm --level smoke
 xforge test review XFPLAN-20260729-001      # giải quyết câu hỏi dead code
 xforge test run XFPLAN-20260729-001
@@ -329,6 +330,29 @@ Approval được gắn với hash chuẩn hóa của plan. Nếu plan bị sử
 XForge từ chối chạy — approval trở nên stale sau khi re-plan là hành vi đúng,
 không phải lỗi. `xforge test run` kiểm tra lại hash trước khi thực thi và không
 hỏi thêm gì sau khi approval hợp lệ.
+
+### Làm cho dự án test được
+
+XCUITest điều khiển app từ một **process riêng** thông qua accessibility API, và
+iOS chỉ cấp quyền đó cho bundle có product type
+`com.apple.product-type.bundle.ui-testing`. Không có cách nào chạy loại test này
+từ app target — đó là ranh giới của hệ điều hành chứ không phải quy ước của
+Xcode — nên dự án chưa có UI test target thì không QA được, và `test doctor` sẽ
+báo blocker.
+
+`xforge test setup` tạo target đó, kèm `Info.plist` của bundle và một shared
+scheme (`xcodebuild -scheme` không nhìn thấy scheme nằm trong `xcuserdata`):
+
+```bash
+xforge test setup --dry-run   # xem trước sẽ thay đổi gì
+xforge test setup             # làm thật
+```
+
+Lệnh này sửa `project.pbxproj` — file mà một lần ghi sai sẽ không báo lỗi ồn ào,
+nó chỉ khiến Xcode không mở được project. Nên thao tác được backup trước, verify
+cấu trúc cả trước lẫn sau khi ghi, và khôi phục từ backup nếu có bất thường. Nó
+cũng idempotent: dự án đã có UI test target thì được để yên. Kiểm tra
+`git diff -- '*.pbxproj'` trước khi commit.
 
 ### Những thứ âm thầm làm mất coverage
 
