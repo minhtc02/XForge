@@ -103,3 +103,25 @@ export function defaultConfig(
     },
   });
 }
+
+/**
+ * The directory a source glob lives under — `docs/project/**\/*.md` is rooted at
+ * `docs/project`. Used to decide which directory `init` should create so the
+ * user has an obvious place to drop their documents.
+ *
+ * Returns undefined for a glob with no fixed prefix (`**\/*.md`), because
+ * creating a directory for that would mean guessing.
+ */
+export function globRootDir(glob: string): string | undefined {
+  const segments = glob.split("/");
+  const fixed: string[] = [];
+  for (const segment of segments) {
+    if (segment.includes("*") || segment.includes("?")) break;
+    fixed.push(segment);
+  }
+  // The last fixed segment is a filename, not a directory, when the glob has no
+  // wildcard at all (`docs/project/prd.md`).
+  if (fixed.length === segments.length && fixed.length > 0) fixed.pop();
+  const root = fixed.filter((s) => s !== "" && s !== ".").join("/");
+  return root === "" ? undefined : root;
+}

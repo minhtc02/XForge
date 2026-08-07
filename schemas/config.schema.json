@@ -22,6 +22,11 @@
       "properties": {
         "code": { "type": "array", "items": { "type": "string" } },
         "documents": { "type": "array", "items": { "type": "string" } },
+        "project_docs": {
+          "description": "The project's own documentation, which XForge only ever reads. Default source of truth for `xforge docs`; kept distinct from output.root so a run never ingests its own output.",
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "prd": { "type": "array", "items": { "type": "string" } },
         "speckit": { "type": "array", "items": { "type": "string" } },
         "bmad": { "type": "array", "items": { "type": "string" } }
@@ -32,7 +37,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "root": { "type": "string" },
+        "root": {
+          "description": "Where XForge writes. Must not overlap sources.project_docs.",
+          "type": "string"
+        },
         "format": { "enum": ["markdown"] },
         "diagrams": { "enum": ["mermaid", "none"] },
         "language": { "type": "string" }
@@ -51,6 +59,10 @@
         "publish_full_model": {
           "description": "Publish the complete model (inventories included) as _meta/project-model.json. .xforge/state/ always keeps the split form.",
           "type": "boolean"
+        },
+        "docs_source": {
+          "description": "Which truth `xforge docs` leads with. `project-docs` (default): documents state intent and win on conflict. `code`: the repository leads and project documents do not create requirements. Overridable per run with --from-docs / --from-code.",
+          "enum": ["project-docs", "code"]
         }
       }
     },

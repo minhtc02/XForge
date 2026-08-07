@@ -19,6 +19,13 @@ export const SourcesConfig = z
   .object({
     code: z.array(z.string()).default(["."]),
     documents: z.array(z.string()).default(["README.md", "docs/**/*.md"]),
+    /**
+     * Documentation the *project* owns and XForge only ever reads. This is the
+     * default source of truth for `xforge docs` (see {@link DocsSource}), and
+     * it is deliberately a different tree from `output.root` — XForge must
+     * never ingest its own output and call it a requirement.
+     */
+    project_docs: z.array(z.string()).default(["docs/project/**/*.md"]),
     prd: z
       .array(z.string())
       .default(["docs/**/prd*.md", "_bmad-output/**/prd*.md"]),
@@ -29,9 +36,28 @@ export const SourcesConfig = z
   })
   .default({});
 
+/**
+ * Where `xforge docs` takes its primary truth from.
+ *
+ * `project-docs` — the documents under `sources.project_docs` are authoritative;
+ * source code is still scanned for evidence, but a conflict resolves to the
+ * document. This is the default: a human-written spec states intent, and code
+ * can only ever show what was built.
+ *
+ * `code` — the repository is authoritative and project documents are treated as
+ * secondary. Use this to document a codebase that has drifted from its docs, or
+ * one that has no docs yet.
+ */
+export const DocsSource = z.enum(["project-docs", "code"]);
+export type DocsSource = z.infer<typeof DocsSource>;
+
 export const OutputConfig = z
   .object({
-    root: z.string().default("docs/project"),
+    /**
+     * Where XForge writes. Kept separate from `sources.project_docs` so a
+     * regeneration can never overwrite something a human wrote.
+     */
+    root: z.string().default("docs/xforge"),
     format: z.enum(["markdown"]).default("markdown"),
     diagrams: z.enum(["mermaid", "none"]).default("mermaid"),
     language: z.string().default("vi"),
@@ -53,6 +79,12 @@ export const GenerationConfig = z
      * `.xforge/state/` always keeps the split form regardless.
      */
     publish_full_model: z.boolean().default(true),
+    /**
+     * Which truth `xforge docs` leads with. Overridable per run with
+     * `--from-code` / `--from-docs`; when neither is passed and the terminal is
+     * interactive, `docs` confirms this value rather than assuming it.
+     */
+    docs_source: DocsSource.default("project-docs"),
   })
   .default({});
 

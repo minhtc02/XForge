@@ -119,8 +119,8 @@ export function buildModelDigest(model: ProjectModel): ModelDigest {
       feature_to_files: ".xforge/state/feature-map.json",
       requirement_to_feature: ".xforge/state/requirement-map.json",
       file_to_documents: ".xforge/state/dependency-graph.json",
-      traceability: "docs/project/traceability/prd-coverage.md",
-      gaps: "docs/project/traceability/implementation-gaps.md",
+      traceability: "docs/xforge/traceability/prd-coverage.md",
+      gaps: "docs/xforge/traceability/implementation-gaps.md",
     },
   };
 }

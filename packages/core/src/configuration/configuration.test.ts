@@ -11,11 +11,22 @@ describe("config validation", () => {
   it("applies defaults from a minimal config", () => {
     const cfg = validateConfig({ version: CONFIG_VERSION });
     expect(cfg.project.profile).toBe("ios-swift");
-    expect(cfg.output.root).toBe("docs/project");
+    expect(cfg.output.root).toBe("docs/xforge");
     expect(cfg.output.language).toBe("vi");
     expect(cfg.generation.minimum_confidence).toBe(0.75);
     expect(cfg.exclude).toContain("Pods/**");
     expect(cfg.exclude).toContain("**/GoogleService-Info.plist");
+  });
+
+  it("reads the project's own docs by default and writes somewhere else", () => {
+    // The two trees must stay distinct: if XForge wrote into the directory it
+    // reads as truth, the next run would ingest its own output as a source.
+    const cfg = validateConfig({ version: CONFIG_VERSION });
+    expect(cfg.sources.project_docs).toEqual(["docs/project/**/*.md"]);
+    expect(cfg.generation.docs_source).toBe("project-docs");
+    expect(
+      cfg.sources.project_docs.some((g) => g.startsWith(cfg.output.root)),
+    ).toBe(false);
   });
 
   it("rejects a config that is not an object", () => {
