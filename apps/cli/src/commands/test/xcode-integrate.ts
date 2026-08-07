@@ -181,7 +181,7 @@ export async function integrateWithXcode(
 }
 
 /** Find the directory a target's sources live in, by folder name. */
-async function findTargetFolder(
+export async function findTargetFolder(
   projectRoot: string,
   target: string,
 ): Promise<string | undefined> {

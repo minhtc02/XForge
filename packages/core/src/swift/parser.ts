@@ -255,8 +255,12 @@ function parseInherits(raw: string | undefined): string[] {
  * dead code look reachable, which is the one direction of error that matters
  * here. Interpolated segments (`\(Foo())`) are kept, because those really are
  * code.
+ *
+ * Exported because every lexical scan over Swift needs this for a different
+ * reason: brace-depth counting is thrown off by a `{` inside a string exactly
+ * as type-reference scanning is thrown off by a type name inside one.
  */
-function blankStringLiterals(line: string): string {
+export function blankStringLiterals(line: string): string {
   let out = "";
   let inString = false;
   let depth = 0; // interpolation nesting

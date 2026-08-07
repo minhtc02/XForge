@@ -8,4 +8,5 @@ export * from "./generation/index.js";
 export * from "./analysis/index.js";
 export * from "./results/index.js";
 export * from "./reporting/index.js";
+export * from "./setup/index.js";
 export * from "./state/index.js";

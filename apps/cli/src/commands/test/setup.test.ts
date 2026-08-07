@@ -115,10 +115,24 @@ const APP_ONLY_PBXPROJ = `// !$*UTF8*$!
 }
 `;
 
+/** A textbook SwiftUI entry point: no initializer, so one has to be added. */
+const APP_ENTRY = `import SwiftUI
+
+@main
+struct MyApp: App {
+    var body: some Scene {
+        WindowGroup {
+            HomeScreen()
+        }
+    }
+}
+`;
+
 async function scaffold(dir: string, pbxproj = APP_ONLY_PBXPROJ) {
   await mkdir(join(dir, "MyApp/Features/Home"), { recursive: true });
   await mkdir(join(dir, "MyApp.xcodeproj"), { recursive: true });
   await mkdir(join(dir, ".git"), { recursive: true });
+  await writeFile(join(dir, "MyApp/MyApp.swift"), APP_ENTRY);
   await writeFile(
     join(dir, "MyApp/Features/Home/HomeScreen.swift"),
     'import SwiftUI\nstruct HomeScreen: View { var body: some View { Text("h") } }\n',
@@ -219,6 +233,91 @@ describe("xforge test setup", () => {
     expect(second.steps.find((s) => s.name === "UI test target")?.status).toBe(
       "skipped",
     );
+  });
+
+  it("puts the test-support file in the app target and calls it once", async () => {
+    await scaffold(root);
+    await runInit(ctx(root), {});
+
+    await runTestSetup(ctx(root), {});
+
+    // The file has to be compiled into the app, or the call will not build.
+    const pbx = await readFile(pbxPath(), "utf8");
+    expect(pbx).toContain("XForgeTestSupport.swift");
+
+    const entry = await readFile(join(root, "MyApp/MyApp.swift"), "utf8");
+    expect(entry).toContain("XForgeTestSupport.configure()");
+    // DEBUG-guarded, because the callee itself only exists in DEBUG.
+    const lines = entry.split("\n");
+    const call = lines.findIndex((l) => l.includes("configure()"));
+    expect(lines[call - 1]?.trim()).toBe("#if DEBUG");
+    expect(lines[call + 1]?.trim()).toBe("#endif");
+    // Exactly one call site — the app's own code is otherwise untouched.
+    expect(entry.match(/configure\(\)/g)).toHaveLength(1);
+    expect(entry).toContain("WindowGroup {");
+  });
+
+  it("does not touch product source under --dry-run", async () => {
+    await scaffold(root);
+    await runInit(ctx(root), {});
+    const before = await readFile(join(root, "MyApp/MyApp.swift"), "utf8");
+
+    const result = await runTestSetup(ctx(root), { dryRun: true });
+
+    expect(await readFile(join(root, "MyApp/MyApp.swift"), "utf8")).toBe(
+      before,
+    );
+    expect(
+      result.steps.find((s) => s.name === "Test-support hook")?.detail,
+    ).toContain("would call");
+  });
+
+  it("adds the call only once across runs", async () => {
+    await scaffold(root);
+    await runInit(ctx(root), {});
+    await runTestSetup(ctx(root), {});
+    const after = await readFile(join(root, "MyApp/MyApp.swift"), "utf8");
+
+    const second = await runTestSetup(ctx(root), {});
+
+    expect(await readFile(join(root, "MyApp/MyApp.swift"), "utf8")).toBe(after);
+    expect(
+      second.steps.find((s) => s.name === "Test-support hook")?.status,
+    ).toBe("skipped");
+  });
+
+  it("leaves the app alone when it cannot recognise the entry point", async () => {
+    await scaffold(root);
+    // A UIKit delegate: the shape varies too much to edit blind.
+    await writeFile(
+      join(root, "MyApp/MyApp.swift"),
+      "import UIKit\n@main\nclass AppDelegate: UIResponder, UIApplicationDelegate {\n}\n",
+    );
+    await runInit(ctx(root), {});
+    const before = await readFile(join(root, "MyApp/MyApp.swift"), "utf8");
+
+    const result = await runTestSetup(ctx(root), {});
+
+    expect(await readFile(join(root, "MyApp/MyApp.swift"), "utf8")).toBe(
+      before,
+    );
+    const step = result.steps.find((s) => s.name === "Test-support hook");
+    expect(step?.status).toBe("skipped");
+    expect(step?.detail).toContain("didFinishLaunchingWithOptions");
+    // A hook it declined to write is not a reason to call the project un-QA-able:
+    // the hooks are empty stubs, and the tests run without them.
+    expect(result.ready).toBe(true);
+  });
+
+  it("keeps the pre-setup pbxproj as the backup, not an intermediate one", async () => {
+    await scaffold(root);
+    await runInit(ctx(root), {});
+    const before = await readFile(pbxPath(), "utf8");
+
+    // Two steps edit the project; only the first backup is the real original.
+    const result = await runTestSetup(ctx(root), {});
+
+    expect(await readFile(join(root, result.backup!), "utf8")).toBe(before);
   });
 
   it("refuses a project with no application target", async () => {

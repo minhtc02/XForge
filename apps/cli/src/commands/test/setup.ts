@@ -3,15 +3,26 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { ValidationError, type Logger } from "@xforge/shared";
 import {
+  addFileToTarget,
   createUiTestTarget,
   detectSharedSchemes,
   loadConfig,
   parsePbxprojTargets,
   scanFiles,
+  usesSynchronizedGroups,
   verifyPbxproj,
+  type ScannedFile,
 } from "@xforge/core";
-import { loadTestConfig, writeTestConfig } from "@xforge/test-core";
+import {
+  GENERATED_FILES,
+  findAppEntry,
+  generateTestSupportFile,
+  loadTestConfig,
+  planTestSupportHook,
+  writeTestConfig,
+} from "@xforge/test-core";
 import { emitResult, type CliContext } from "../../context.js";
+import { findTargetFolder } from "./xcode-integrate.js";
 
 /**
  * `xforge test setup` — make a project QA-able.
@@ -32,6 +43,15 @@ import { emitResult, type CliContext } from "../../context.js";
  *
  * A broken pbxproj does not fail loudly; it makes Xcode refuse to open the
  * project. That is why every step here would rather do nothing than guess.
+ *
+ * It also writes the one edit XForge makes to *product* source: a DEBUG-only
+ * `XForgeTestSupport.configure()` call in the `@main` App. A generated hook file
+ * nobody calls is dead code, so the alternative to this edit is not "less
+ * intrusion", it is "the feature does not work". The intrusion is kept to four
+ * lines in one file a reviewer can read at a glance, and the shape has to be one
+ * we recognise — a UIKit delegate or a custom initializer is reported, never
+ * guessed at. Adding accessibility identifiers is deliberately *not* here: that
+ * needs a per-element approval, which is `xforge test a11y`.
  */
 
 export interface TestSetupOptions {
@@ -294,7 +314,48 @@ export async function runTestSetup(
     });
   }
 
-  // --- 4. Record what we resolved in the QA config ------------------------
+  // --- 4. The test-support hook, in the app target ------------------------
+  // Both remaining steps are gated on a UI test target existing. Without one
+  // nothing can run, so editing the project further — and editing the app's own
+  // source — would be churn on a project we have just reported as unusable. It
+  // also keeps the guarantee that a refused target edit leaves the project
+  // byte-identical.
+  //
+  // Order within the gate matters too: the file has to be compiled into the app
+  // before anything calls it, so a failure at step 4 stops step 5 rather than
+  // leaving a call to a type that is not in the target.
+  if (!uiTestTarget) {
+    for (const name of ["Test-support file", "Test-support hook"]) {
+      steps.push({
+        name,
+        status: "skipped",
+        detail: "no UI test target — nothing would be able to run it",
+      });
+    }
+  } else {
+    const support = await installTestSupport({
+      projectRoot,
+      projectDir,
+      pbxPath,
+      appTarget: appTarget.name,
+      dryRun,
+      alreadyBackedUp: backup !== undefined,
+    });
+    if (support.backup && !backup) backup = support.backup;
+    steps.push(support.step);
+
+    // --- 5. The call site ------------------------------------------------
+    steps.push(
+      await hookAppEntry({
+        projectRoot,
+        files,
+        dryRun,
+        supportAvailable: support.available,
+      }),
+    );
+  }
+
+  // --- 6. Record what we resolved in the QA config ------------------------
   if (!dryRun && uiTestTarget) {
     let changed = false;
     if (testConfig.project.ui_test_target === "auto") {
@@ -328,6 +389,244 @@ export async function runTestSetup(
     render(logger, result),
   );
   return result;
+}
+
+/**
+ * Put `XForgeTestSupport.swift` in the app target.
+ *
+ * The file is pure scaffolding — every hook body is empty until someone fills it
+ * in — but it has to be *compiled into the app* before the entry point can call
+ * it, which is why this runs before the call site is written and why a failure
+ * here stops that step instead of producing a call to a missing type.
+ */
+async function installTestSupport(input: {
+  projectRoot: string;
+  projectDir: string;
+  pbxPath: string;
+  appTarget: string;
+  dryRun: boolean;
+  alreadyBackedUp: boolean;
+}): Promise<{ step: TestSetupStep; available: boolean; backup?: string }> {
+  const { projectRoot, projectDir, pbxPath, appTarget, dryRun } = input;
+  const name = "Test-support file";
+  const fileName = GENERATED_FILES.testSupport;
+
+  const dir = (await findTargetFolder(projectRoot, appTarget)) ?? projectDir;
+  const dest = join(dir, fileName);
+  const shown = relative(projectRoot, dest);
+  const content = await readFile(pbxPath, "utf8");
+
+  // Folder-backed targets compile whatever is on disk, so there is no project to
+  // edit — the safest of the two routes, and the only one with no failure mode.
+  if (usesSynchronizedGroups(content)) {
+    if (dryRun) {
+      return {
+        step: { name, status: "done", detail: `would write ${shown}` },
+        available: true,
+      };
+    }
+    await mkdir(dir, { recursive: true });
+    await writeFile(dest, generateTestSupportFile(), "utf8");
+    return {
+      step: { name, status: "done", detail: `${shown} (folder-backed target)` },
+      available: true,
+    };
+  }
+
+  const edit = addFileToTarget({
+    content,
+    targetName: appTarget,
+    fileName,
+    relativePath: fileName,
+  });
+
+  if (edit.skipped === "already-present") {
+    if (!dryRun) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(dest, generateTestSupportFile(), "utf8");
+    }
+    return {
+      step: {
+        name,
+        status: "skipped",
+        detail: `${fileName} is already in ${appTarget}`,
+      },
+      available: true,
+    };
+  }
+  if (!edit.content) {
+    return {
+      step: {
+        name,
+        status: "failed",
+        detail: `could not add ${fileName} to ${appTarget}: ${edit.detail ?? edit.skipped}. Add it in Xcode.`,
+      },
+      available: false,
+    };
+  }
+
+  const targetCount = (content.match(/isa = PBXNativeTarget;/g) ?? []).length;
+  const check = verifyPbxproj(edit.content, { targets: targetCount });
+  if (!check.ok) {
+    return {
+      step: {
+        name,
+        status: "failed",
+        detail: `refused to write: ${check.reason}. Add ${fileName} in Xcode.`,
+      },
+      available: false,
+    };
+  }
+  if (dryRun) {
+    return {
+      step: {
+        name,
+        status: "done",
+        detail: `would write ${shown} and add it to ${appTarget} (dry run)`,
+      },
+      available: true,
+    };
+  }
+
+  // One backup per run: step 1 may already hold the pre-setup original, and
+  // overwriting it here would replace the only copy that predates any edit.
+  let backup: string | undefined;
+  if (!input.alreadyBackedUp) {
+    backup = `${pbxPath}.xforge-backup`;
+    await writeFile(backup, content, "utf8");
+  }
+  await mkdir(dir, { recursive: true });
+  await writeFile(dest, generateTestSupportFile(), "utf8");
+  await writeFile(pbxPath, edit.content, "utf8");
+
+  const written = await readFile(pbxPath, "utf8");
+  const after = verifyPbxproj(written, { targets: targetCount });
+  if (!after.ok) {
+    await writeFile(pbxPath, content, "utf8");
+    return {
+      step: {
+        name,
+        status: "failed",
+        detail: `wrote and rolled back (${after.reason}); the project is unchanged`,
+      },
+      available: false,
+    };
+  }
+
+  return {
+    step: { name, status: "done", detail: `${shown} → ${appTarget}` },
+    available: true,
+    ...(backup ? { backup: relative(projectRoot, backup) } : {}),
+  };
+}
+
+/** Swift files that could hold the `@main` entry point. */
+function entryCandidates(files: ScannedFile[]): string[] {
+  return (
+    files
+      .map((f) => f.path)
+      .filter(
+        (p) =>
+          p.endsWith(".swift") &&
+          !p.includes(".xforge/") &&
+          !/Tests?\.swift$/.test(p),
+      )
+      // `MyApp.swift` first: usually the answer, and it keeps the common case to
+      // one file read.
+      .sort(
+        (a, b) =>
+          Number(b.endsWith("App.swift")) - Number(a.endsWith("App.swift")),
+      )
+  );
+}
+
+/**
+ * Write `XForgeTestSupport.configure()` into the `@main` App.
+ *
+ * This is the only edit XForge makes to product source, so it is deliberately
+ * the smallest one that works: one file, four lines, `#if DEBUG`, and a refusal
+ * with a reason wherever the shape is not the one we recognise. Nothing here
+ * blocks a QA run — the hooks are empty stubs — so a refusal is reported as a
+ * skip, not a failure.
+ */
+async function hookAppEntry(input: {
+  projectRoot: string;
+  files: ScannedFile[];
+  dryRun: boolean;
+  supportAvailable: boolean;
+}): Promise<TestSetupStep> {
+  const { projectRoot, dryRun } = input;
+  const name = "Test-support hook";
+
+  if (!input.supportAvailable) {
+    return {
+      name,
+      status: "skipped",
+      detail: `${GENERATED_FILES.testSupport} is not in the app target, so a call to it would not compile`,
+    };
+  }
+
+  const found: Array<{ path: string; content: string }> = [];
+  const refusals: string[] = [];
+  for (const path of entryCandidates(input.files)) {
+    const content = await readFile(join(projectRoot, path), "utf8").catch(
+      () => undefined,
+    );
+    if (content === undefined || !content.includes("@main")) continue;
+    const located = findAppEntry(content);
+    if (located === undefined) continue;
+    if ("refused" in located) {
+      refusals.push(`${path}: ${located.refused}`);
+      continue;
+    }
+    found.push({ path, content });
+  }
+
+  if (found.length === 0) {
+    return {
+      name,
+      status: "skipped",
+      detail:
+        refusals[0] ??
+        "no `@main` SwiftUI App found; call XForgeTestSupport.configure() at app start yourself",
+    };
+  }
+  if (found.length > 1) {
+    return {
+      name,
+      status: "skipped",
+      detail:
+        `${found.length} files declare a \`@main\` App (${found.map((f) => f.path).join(", ")}); ` +
+        "add the call to the one that ships rather than have this pick",
+    };
+  }
+
+  const entry = found[0]!;
+  const plan = planTestSupportHook(entry.content);
+  if (plan.status === "already-present") {
+    return {
+      name,
+      status: "skipped",
+      detail: `already called at ${entry.path}:${plan.line}`,
+    };
+  }
+  if (plan.status === "refused") {
+    return { name, status: "skipped", detail: plan.reason };
+  }
+  if (dryRun) {
+    return {
+      name,
+      status: "done",
+      detail: `would call configure() in ${entry.path} (${plan.entry.name})`,
+    };
+  }
+
+  await writeFile(join(projectRoot, entry.path), plan.content, "utf8");
+  return {
+    name,
+    status: "done",
+    detail: `${entry.path}:${plan.line} (${plan.strategy === "new-init" ? "added init()" : "existing init()"})`,
+  };
 }
 
 /** Reuse the app's bundle id as a prefix so signing keeps working. */
@@ -370,6 +669,18 @@ function render(logger: Logger, result: TestSetupResult): void {
       `\n  project.pbxproj was edited. Check it before committing:\n` +
         `    git diff -- '*.pbxproj'\n` +
         `  The original is at ${result.backup} if you want it back.\n`,
+    );
+  }
+
+  // The app's own source changed. Say so plainly — a silent product-code edit is
+  // the one outcome nobody should discover later from a diff.
+  const hook = result.steps.find((s) => s.name === "Test-support hook");
+  if (hook?.status === "done" && !result.dryRun) {
+    process.stderr.write(
+      `\n  Your app's source was edited: ${hook.detail}\n` +
+        "  Four lines, inside #if DEBUG, inert without the --xforge-test launch\n" +
+        "  argument. Read it before committing:\n" +
+        "    git diff -- '*.swift'\n",
     );
   }
 
