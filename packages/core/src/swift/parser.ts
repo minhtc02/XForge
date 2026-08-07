@@ -30,6 +30,22 @@ export interface SwiftFunction {
   line: number;
 }
 
+/**
+ * A type name mentioned somewhere other than its own declaration — a
+ * construction (`FooScreen()`), a navigation destination, a type annotation.
+ *
+ * This is what makes "declared but never used anywhere" answerable. It is a
+ * lexical match, not a resolved symbol: `Foo` inside a string or a comment is
+ * already excluded (comments are stripped before this runs), but shadowing and
+ * same-named types in different modules are not distinguished. Consumers must
+ * treat a zero-reference type as *a question to ask*, never as proof of dead
+ * code — which is why nothing in XForge deletes based on it.
+ */
+export interface SwiftTypeReference {
+  name: string;
+  line: number;
+}
+
 /** A literal string found at a known line (endpoint, event name, ...). */
 export interface SwiftLiteralRef {
   value: string;
@@ -55,6 +71,12 @@ export interface SwiftFileAnalysis {
   imports: string[];
   types: SwiftType[];
   functions: SwiftFunction[];
+  /**
+   * Capitalized identifiers referenced in this file, excluding the file's own
+   * declarations. Feeds the reachability analysis that spots a screen nothing
+   * ever presents.
+   */
+  typeReferences: SwiftTypeReference[];
   /** Coarse role inferred from filename + declarations. */
   role: SwiftRole;
   /** For test files: modules imported with `@testable import`. */
@@ -95,6 +117,101 @@ const FUNC_RE =
 const ATTRIBUTE_RE = /@([A-Za-z_][A-Za-z0-9_]*)/g;
 
 /**
+ * A capitalized identifier — the lexical shape of a Swift type reference.
+ * Deliberately permissive: the caller filters out declarations, keywords and
+ * the standard library, because being generous here and subtractive there is
+ * what keeps a missed reference (which would wrongly call live code dead) far
+ * less likely than a spurious one (which merely keeps a screen off the list).
+ */
+const TYPE_REF_RE = /\b([A-Z][A-Za-z0-9_]*)\b/g;
+
+/**
+ * Type names so common that a reference to them says nothing about app
+ * navigation. Excluding them keeps the reachability graph about the project's
+ * own screens rather than SwiftUI's vocabulary.
+ */
+const ORDINARY_TYPE_NAMES = new Set([
+  // SwiftUI / UIKit surface used by nearly every view file.
+  "View",
+  "Text",
+  "Image",
+  "Button",
+  "VStack",
+  "HStack",
+  "ZStack",
+  "List",
+  "ScrollView",
+  "NavigationStack",
+  "NavigationView",
+  "NavigationLink",
+  "Group",
+  "Section",
+  "Form",
+  "Spacer",
+  "Divider",
+  "Color",
+  "Font",
+  "Animation",
+  "State",
+  "Binding",
+  "Published",
+  "ObservedObject",
+  "StateObject",
+  "EnvironmentObject",
+  "Environment",
+  "ViewBuilder",
+  "Preview",
+  "PreviewProvider",
+  "App",
+  "Scene",
+  "WindowGroup",
+  "Toolbar",
+  "Alert",
+  "Sheet",
+  "Task",
+  // Foundation / Swift standard library.
+  "String",
+  "Int",
+  "Double",
+  "Float",
+  "Bool",
+  "Date",
+  "Data",
+  "URL",
+  "UUID",
+  "Array",
+  "Dictionary",
+  "Set",
+  "Optional",
+  "Result",
+  "Error",
+  "Never",
+  "Void",
+  "Any",
+  "AnyObject",
+  "Self",
+  "Codable",
+  "Decodable",
+  "Encodable",
+  "Hashable",
+  "Equatable",
+  "Identifiable",
+  "Comparable",
+  "Sendable",
+  "CaseIterable",
+  "DispatchQueue",
+  "Notification",
+  "Bundle",
+  "UserDefaults",
+  "FileManager",
+  "TimeInterval",
+  "IndexSet",
+  "Calendar",
+  "Locale",
+  "Timer",
+]);
+
+/**
  * Accessibility identifier forms:
  *   SwiftUI  `.accessibilityIdentifier("x")` / `.accessibility(identifier: "x")`
  *   UIKit    `view.accessibilityIdentifier = "x"`
@@ -128,6 +245,49 @@ function parseInherits(raw: string | undefined): string[] {
     .split(",")
     .map((s) => s.trim().replace(/<.*>$/, "").trim())
     .filter((s) => s.length > 0);
+}
+
+/**
+ * Blank out string-literal contents, keeping the quotes and the length.
+ *
+ * Type-reference scanning must not see `"CategoryDetailScreen"` inside a log
+ * message and record it as a use of that type — a single such match would make
+ * dead code look reachable, which is the one direction of error that matters
+ * here. Interpolated segments (`\(Foo())`) are kept, because those really are
+ * code.
+ */
+function blankStringLiterals(line: string): string {
+  let out = "";
+  let inString = false;
+  let depth = 0; // interpolation nesting
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i] as string;
+    const next = line[i + 1];
+    if (inString && ch === "\\" && next === "(") {
+      inString = false;
+      depth += 1;
+      out += "\\(";
+      i += 2;
+      continue;
+    }
+    if (depth > 0 && ch === ")") {
+      depth -= 1;
+      if (depth === 0) inString = true;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === '"' && depth === 0) {
+      inString = !inString;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    out += inString ? " " : ch;
+    i += 1;
+  }
+  return out;
 }
 
 /**
@@ -227,6 +387,7 @@ export function analyzeSwiftFile(
   const testableImports = new Set<string>();
   const types: SwiftType[] = [];
   const functions: SwiftFunction[] = [];
+  const typeReferences: SwiftTypeReference[] = [];
   const attributes = new Set<string>();
   const accessibilityIdentifiers: SwiftAccessibilityIdentifier[] = [];
   const urlLiterals: SwiftLiteralRef[] = [];
@@ -265,6 +426,15 @@ export function analyzeSwiftFile(
       if (m[1]) attributes.add(m[1]);
     }
 
+    // Type references, from code only — string contents are blanked so a name
+    // mentioned in a log line never counts as a use.
+    for (const m of matchAll(TYPE_REF_RE, blankStringLiterals(line))) {
+      const name = m[1];
+      if (name && !ORDINARY_TYPE_NAMES.has(name)) {
+        typeReferences.push({ name, line: i + 1 });
+      }
+    }
+
     const testable = TESTABLE_IMPORT_RE.exec(line);
     if (testable?.[1]) {
       testableImports.add(testable[1]);
@@ -293,12 +463,17 @@ export function analyzeSwiftFile(
   }
 
   const role = inferRole(path, types, [...imports]);
+  // A file naturally mentions its own type on the declaration line and in its
+  // initializers; those are not evidence that anything else uses it.
+  const declared = new Set(types.map((t) => t.name));
+  const references = typeReferences.filter((r) => !declared.has(r.name));
   return {
     path,
     imports: [...imports].sort(),
     testableImports: [...testableImports].sort(),
     types,
     functions,
+    typeReferences: dedupeByName(references),
     role,
     lineCount: lines.length,
     attributes: [...attributes].sort(),
@@ -317,6 +492,16 @@ function dedupeLiterals(refs: SwiftLiteralRef[]): SwiftLiteralRef[] {
   return refs.filter((r) => {
     if (seen.has(r.value)) return false;
     seen.add(r.value);
+    return true;
+  });
+}
+
+/** Keep the first occurrence of each referenced name. */
+function dedupeByName(refs: SwiftTypeReference[]): SwiftTypeReference[] {
+  const seen = new Set<string>();
+  return refs.filter((r) => {
+    if (seen.has(r.name)) return false;
+    seen.add(r.name);
     return true;
   });
 }

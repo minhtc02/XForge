@@ -74,6 +74,25 @@ export const FeatureEntryPoint = z.object({
 });
 export type FeatureEntryPoint = z.infer<typeof FeatureEntryPoint>;
 
+/**
+ * A screen type and whether anything else in the app refers to it.
+ *
+ * `orphaned` means no non-test file mentions the type — a candidate for dead
+ * code, never a conclusion. The check cannot see reflection, storyboard
+ * instantiation or string-keyed registration, so consumers must present it as a
+ * question. Test planning uses it to avoid generating cases for a screen the
+ * user may not be able to reach.
+ */
+export const ScreenReachability = z.object({
+  type: z.string().min(1),
+  file: z.string().min(1),
+  start_line: z.number().int().positive().optional(),
+  feature: z.string().optional(),
+  referenced_by: z.array(z.string()).default([]),
+  orphaned: z.boolean().default(false),
+});
+export type ScreenReachability = z.infer<typeof ScreenReachability>;
+
 export const Feature = z.object({
   id: Id,
   name: z.string().min(1),
@@ -281,6 +300,11 @@ export const ProjectModel = z.object({
   dependencies: z.array(Dependency).default([]),
   test_cases: z.array(TestCase).default([]),
   accessibility_identifiers: z.array(AccessibilityIdentifier).default([]),
+  /**
+   * Screen types and what refers to them. Populated for iOS projects; an entry
+   * with `orphaned: true` is a dead-code *candidate* to confirm, not a verdict.
+   */
+  screen_reachability: z.array(ScreenReachability).default([]),
   /** iOS capabilities from entitlements (`Push Notifications`, ...). */
   capabilities: z.array(z.string()).default([]),
   /** `UIBackgroundModes` values declared in Info.plist. */
