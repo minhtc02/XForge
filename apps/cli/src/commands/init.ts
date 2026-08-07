@@ -7,6 +7,7 @@ import {
   defaultConfig,
   detectProject,
   ensureStateDirs,
+  globRootDir,
   loadConfig,
   parsePlist,
   plistFacts,
@@ -37,6 +38,10 @@ export interface InitResult {
   detection: DetectionResult;
   createdConfig: boolean;
   createdOutputDir: string;
+  /** Where the project's own source documents go (read-only for XForge). */
+  projectDocsDir: string;
+  /** True when `docs/project/` already existed and was adopted as-is. */
+  projectDocsExisted: boolean;
   stateDirs: string[];
   /** Where the QA module's config was written, when init wrote one. */
   testConfigPath?: string;
@@ -139,6 +144,16 @@ export async function runInit(
   await mkdir(outputDir, { recursive: true });
   await mkdir(join(outputDir, "_meta"), { recursive: true });
 
+  // The project's own documents are an *input*: `docs` reads them as the
+  // default source of truth. Create the directory so there is an obvious place
+  // to put them, but adopt an existing one untouched — it may already hold the
+  // PRD this project was written against, and re-creating it is not our call.
+  const projectDocsRoot =
+    globRootDir(config.sources.project_docs[0] ?? "") ?? "docs/project";
+  const projectDocsDir = join(projectRoot, projectDocsRoot);
+  const projectDocsExisted = existsSync(projectDocsDir);
+  if (!projectDocsExisted) await mkdir(projectDocsDir, { recursive: true });
+
   // Seed the QA module's config with the resolved Xcode facts, so `xforge test`
   // is usable without hand-editing. Existing configs are left alone unless
   // --force: they may carry user edits we must not clobber.
@@ -159,6 +174,8 @@ export async function runInit(
     detection,
     createdConfig: true,
     createdOutputDir: config.output.root,
+    projectDocsDir: projectDocsRoot,
+    projectDocsExisted,
     stateDirs,
     ...(testConfigPathWritten ? { testConfigPath: testConfigPathWritten } : {}),
     testConfigSkipped: testConfigExisted && !options.force,
@@ -203,6 +220,7 @@ function renderInitSummary(logger: Logger, result: InitResult): void {
     ["BMAD", d.hasBmad ? "Found" : "Not found"],
     ["PRD candidates", d.prdCandidates.slice(0, 3).join(", ") || "None"],
     ["Swift files", String(d.swiftFileCount)],
+    ["Project docs (input)", result.projectDocsDir],
     ["Documentation output", result.createdOutputDir],
   ];
   const width = Math.max(...lines.map(([k]) => k!.length));
@@ -233,6 +251,16 @@ function renderInitSummary(logger: Logger, result: InitResult): void {
       );
     }
   }
+
+  process.stderr.write(
+    `\n  Documentation:\n` +
+      `    ${result.projectDocsDir}/  ${
+        result.projectDocsExisted ? "(existing, used as-is)" : "(created)"
+      } — put your PRD, specs and\n` +
+      `      design notes here. This is what \`xforge docs\` reads by default.\n` +
+      `    ${result.createdOutputDir}/  — XForge writes here. Don't hand-edit\n` +
+      `      outside the manual blocks; a regeneration rewrites the rest.\n`,
+  );
 
   process.stderr.write(
     "\n  Next:\n" +

@@ -110,11 +110,32 @@ describe("runInit", () => {
 
     expect(existsSync(join(root, ".xforge/config.yaml"))).toBe(true);
     expect(existsSync(join(root, ".xforge/state"))).toBe(true);
-    expect(existsSync(join(root, "docs/project/_meta"))).toBe(true);
+    expect(existsSync(join(root, "docs/xforge/_meta"))).toBe(true);
+    // The input tree is created too, so there is an obvious place for a PRD.
+    expect(existsSync(join(root, "docs/project"))).toBe(true);
+    expect(result.projectDocsExisted).toBe(false);
 
     const cfg = await loadConfig(root);
     expect(cfg.project.profile).toBe("ios-swift");
     expect(cfg.project.name).toBe("Cuckoo");
+  });
+
+  it("adopts an existing docs/project/ without touching what is in it", async () => {
+    await scaffoldIosFixture(root);
+    // A project that already keeps its PRD where XForge expects to read it.
+    await mkdir(join(root, "docs/project"), { recursive: true });
+    await writeFile(
+      join(root, "docs/project/prd.md"),
+      "# PRD\n- The app must ring an alarm.\n",
+    );
+
+    const result = await runInit(ctx(root), {});
+
+    expect(result.projectDocsExisted).toBe(true);
+    expect(result.projectDocsDir).toBe("docs/project");
+    expect(await readFile(join(root, "docs/project/prd.md"), "utf8")).toContain(
+      "must ring an alarm",
+    );
   });
 
   it("does not read secret files into config", async () => {
