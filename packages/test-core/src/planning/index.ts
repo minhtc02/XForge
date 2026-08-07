@@ -7,4 +7,5 @@ export * from "./case-generator.js";
 export * from "./reconcile.js";
 export * from "./plan-builder.js";
 export * from "./apply-review.js";
+export * from "./review-policy.js";
 export * from "./render.js";

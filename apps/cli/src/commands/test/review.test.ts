@@ -204,3 +204,129 @@ describe("xforge test review", () => {
     ).rejects.toThrow(/No review to apply/);
   });
 });
+
+describe("xforge test review --apply --approve", () => {
+  /** Fill the template with one verdict and write it back. */
+  async function fillReview(
+    planId: string,
+    reviewPath: string,
+    verdict: Record<string, unknown>,
+  ): Promise<void> {
+    const review = JSON.parse(await readFile(reviewPath, "utf8"));
+    review.cases[0] = { case_id: review.cases[0].case_id, ...verdict };
+    await writeFile(reviewPath, JSON.stringify(review, null, 2), "utf8");
+  }
+
+  it("regenerates and approves when the review answered the question", async () => {
+    const planId = await planned();
+    const template = await runTestReview(ctx(root), planId);
+    await fillReview(planId, template.reviewPath, {
+      verdict: "retarget",
+      rationale: "CategoryDetailScreen is never presented.",
+      evidence: [
+        { file: "App/Features/Discovery/DiscoveryRouter.swift", start_line: 3 },
+      ],
+      new_anchor: "discovery-home",
+    });
+
+    const result = await runTestReview(ctx(root), planId, {
+      apply: true,
+      approve: true,
+    });
+
+    expect(result.applied?.approved).toBe(true);
+    expect(result.applied?.regenerated).toBeGreaterThan(0);
+    expect(
+      existsSync(join(root, ".xforge/test/plans", planId, "approval.json")),
+    ).toBe(true);
+
+    // The regenerated Swift must reflect the retarget, not the old anchor —
+    // approving sources that still drive at dead code would defeat the point.
+    const swift = await readFile(
+      join(root, ".xforge/test/generated-tests", planId, "XForgeUITests.swift"),
+      "utf8",
+    );
+    expect(swift).toContain("discovery-home");
+    expect(swift).not.toContain("category-detail");
+  });
+
+  it("refuses to approve when a flagged case was left at a bare keep", async () => {
+    const planId = await planned();
+    const template = await runTestReview(ctx(root), planId);
+    // Template default is `keep` with no rationale — an agent that investigated
+    // nothing and applied anyway.
+    const result = await runTestReview(ctx(root), planId, {
+      apply: true,
+      approve: true,
+    });
+
+    expect(result.applied?.approved).toBe(false);
+    expect(result.applied?.unresolved?.[0]).toContain("CategoryDetailScreen");
+    // The merge still happened; only the approval was withheld.
+    expect(
+      existsSync(join(root, ".xforge/test/plans", planId, "approval.json")),
+    ).toBe(false);
+    expect(existsSync(template.reviewPath)).toBe(false);
+  });
+
+  it("approves a justified keep — the lexical check does miss live screens", async () => {
+    const planId = await planned();
+    const template = await runTestReview(ctx(root), planId);
+    await fillReview(planId, template.reviewPath, {
+      verdict: "keep",
+      rationale: "Reached through a NavigationLink the scan cannot see.",
+      evidence: [
+        { file: "App/Features/Discovery/DiscoveryRouter.swift", start_line: 3 },
+      ],
+    });
+
+    const result = await runTestReview(ctx(root), planId, {
+      apply: true,
+      approve: true,
+    });
+    expect(result.applied?.approved).toBe(true);
+  });
+
+  it("leaves approval alone without --approve", async () => {
+    const planId = await planned();
+    const template = await runTestReview(ctx(root), planId);
+    await fillReview(planId, template.reviewPath, {
+      verdict: "drop",
+      rationale: "Dead.",
+      evidence: [{ file: "App/Features/Discovery/CategoryDetailScreen.swift" }],
+    });
+
+    // Dropping the only case would empty the plan, so add one first.
+    const review = JSON.parse(await readFile(template.reviewPath, "utf8"));
+    review.added_cases = [
+      {
+        slug: "open-home",
+        title: "Opening discovery shows the home screen",
+        feature: "discovery",
+        rationale: "This is what the router presents.",
+        evidence: [
+          {
+            file: "App/Features/Discovery/DiscoveryRouter.swift",
+            start_line: 3,
+          },
+        ],
+        steps: [{ id: "step-1", action: "launch-app" }],
+        expected_results: ["Home is visible"],
+        assertions: [
+          { id: "assert-1", kind: "screen-is", target: "discovery-home" },
+        ],
+      },
+    ];
+    await writeFile(
+      template.reviewPath,
+      JSON.stringify(review, null, 2),
+      "utf8",
+    );
+
+    const result = await runTestReview(ctx(root), planId, { apply: true });
+    expect(result.applied?.approved).toBeUndefined();
+    expect(
+      existsSync(join(root, ".xforge/test/plans", planId, "approval.json")),
+    ).toBe(false);
+  });
+});

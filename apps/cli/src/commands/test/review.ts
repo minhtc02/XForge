@@ -4,6 +4,7 @@ import { relative } from "node:path";
 import { NotFoundError, ValidationError, type Logger } from "@xforge/shared";
 import {
   applyPlanReview,
+  evaluateReviewPolicy,
   hashPlan,
   parsePlanReview,
   parseTestPlan,
@@ -13,6 +14,8 @@ import {
   type TestPlan,
 } from "@xforge/test-core";
 import { readProjectModel, type ScreenReachability } from "@xforge/core";
+import { runTestApprove } from "./approve.js";
+import { runTestGenerate } from "./generate.js";
 import { emitResult, type CliContext } from "../../context.js";
 
 /**
@@ -45,7 +48,10 @@ export interface TestReviewOptions {
   apply?: boolean;
   /** Overwrite an existing review template. */
   force?: boolean;
-  /** Re-approve the plan after applying (default false: approval is consent). */
+  /**
+   * With `--apply`: regenerate the XCUITest sources and approve the plan, when
+   * the review actually answered the questions that withheld approval.
+   */
   approve?: boolean;
 }
 
@@ -65,6 +71,10 @@ export interface TestReviewResult {
     unknownCaseIds: string[];
     previousPlanHash: string;
     approvalInvalidated: boolean;
+    /** Set when `--approve` ran: whether the plan ended up approved, and why not. */
+    approved?: boolean;
+    unresolved?: string[];
+    regenerated?: number;
   };
 }
 
@@ -249,6 +259,29 @@ export async function runTestReview(
   // second application against a hash it no longer matches.
   await unlink(reviewPath);
 
+  // `--approve`: close the loop, but only if the review earned it. The policy
+  // check is against the *pre-review* plan, because that is where the questions
+  // were raised; applying the review is what may have answered them.
+  let approved: boolean | undefined;
+  let unresolved: string[] | undefined;
+  let regenerated: number | undefined;
+  if (options.approve) {
+    const policy = evaluateReviewPolicy(plan, review);
+    unresolved = policy.unresolved;
+    approved = policy.allowed;
+    if (policy.allowed) {
+      // The Swift still points at the old anchors; regenerating is not
+      // optional after a retarget, and approving without it would bind an
+      // approval to a plan whose generated tests do not match it.
+      const generated = await runTestGenerate(ctx, planId, {
+        force: true,
+        silent: true,
+      });
+      regenerated = generated.cases;
+      await runTestApprove(ctx, planId, { silent: true });
+    }
+  }
+
   const result: TestReviewResult = {
     planId,
     reviewPath,
@@ -263,6 +296,9 @@ export async function runTestReview(
       unknownCaseIds,
       previousPlanHash: applied.previous_plan_hash,
       approvalInvalidated,
+      ...(approved !== undefined ? { approved } : {}),
+      ...(unresolved !== undefined ? { unresolved } : {}),
+      ...(regenerated !== undefined ? { regenerated } : {}),
     },
   };
   emitResult(ctx, result as unknown as Record<string, unknown>, () =>
@@ -329,6 +365,35 @@ function renderApplied(
       "\n  The previous approval was removed: it was bound to the pre-review plan.\n",
     );
   }
+
+  if (a.approved === true) {
+    process.stderr.write(
+      `\n  Regenerated ${a.regenerated} case(s) and approved.\n` +
+        "  Every question that withheld approval was answered with evidence.\n" +
+        "\n  Next:\n" +
+        `    xforge test run ${result.planId}              # dry run, no build\n` +
+        `    xforge test run ${result.planId} --execute   # run for real\n`,
+    );
+    return;
+  }
+
+  if (a.approved === false) {
+    process.stderr.write(
+      "\n  NOT approved — the review did not settle every open question:\n",
+    );
+    for (const item of a.unresolved ?? []) {
+      process.stderr.write(`    - ${item}\n`);
+    }
+    process.stderr.write(
+      "\n  A `keep` with no rationale is silence, not an answer: it would turn\n" +
+        '  "we do not know if this tests dead code" into "approved". Investigate\n' +
+        "  those cases and re-review, or approve deliberately once you are sure:\n" +
+        `    xforge test review ${result.planId}\n` +
+        `    xforge test approve ${result.planId}\n`,
+    );
+    return;
+  }
+
   process.stderr.write(
     "\n  Next:\n" +
       `    xforge test generate ${result.planId} --force   # regenerate the Swift\n` +

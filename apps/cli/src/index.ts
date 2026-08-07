@@ -330,12 +330,18 @@ test
   .argument("<plan-id>")
   .option("--apply", "apply the filled review to the plan", false)
   .option("--force", "overwrite an existing review template", false)
+  .option(
+    "--approve",
+    "with --apply: regenerate sources and approve, if the review answered every open question",
+    false,
+  )
   .action(async (planId: string, opts, cmd: Command) => {
     await run(
       (ctx) =>
         runTestReview(ctx, planId, {
           apply: opts.apply,
           force: opts.force,
+          approve: opts.approve,
         }),
       cmd,
     );
