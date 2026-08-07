@@ -53,10 +53,18 @@ runs.
      cross-reference makes Xcode refuse to open the project.
 
    - `missing-accessibility-identifiers` / `locator-not-found-in-source` — the
-     app is missing the identifiers the tests locate elements by. Add them to
-     the views: put the identifier on the element under test, not its container,
-     and derive it from stable data (`"lesson-\(lesson.id)"`), never from an
-     array index. Then re-run `xforge docs` so the model sees them.
+     app is missing the identifiers the tests locate elements by. That has its
+     own command, because each edit lands in product source and needs its own
+     approval:
+
+     ```bash
+     xforge test a11y <plan-id>            # proposal: one entry per locator
+     xforge test a11y <plan-id> --apply    # writes only the approved entries
+     ```
+
+     Use `/xforge:test-a11y` to do it properly — the judgement it needs is which
+     element each locator belongs to, and the rule is: the element under test,
+     never its container. Then re-run `xforge docs` so the model sees them.
 
    After `test setup`, re-plan: `xforge test plan --level smoke`. The plan you
    were reviewing was built when the project could not be tested at all, so its
@@ -106,8 +114,10 @@ runs.
    cannot invent a requirement link.
 
    Use `required_identifiers` for `accessibilityIdentifier` values the app needs
-   before these cases can work. **Record them; do not add them.** Editing
-   product source is not this command's job.
+   before these cases can work. **Record them here; add them elsewhere.** They
+   are carried into the plan and become proposals in `xforge test a11y`, where
+   each edit gets its own approval — a plan merge is not the place to change
+   product code.
 
 6. Apply. If the user asked you to take it all the way to a run, add
    `--approve`:
@@ -162,8 +172,10 @@ runs.
 - **Never approve past a question you could not answer.** `--approve` enforces
   this, but do not try to satisfy it with an empty `keep`. Leaving a question
   open and saying so is a good outcome; hiding it is not.
-- **Never edit product source here.** Missing identifiers are recorded for the
-  user, not added by you. XForge changes test artifacts, not the app.
+- **Never edit product source here.** Missing identifiers get recorded in
+  `required_identifiers` and are added by `/xforge:test-a11y`, one approved edit
+  at a time. A review changes the plan; it does not change the app on the way
+  past.
 - **Do not delete screens.** If a screen is dead, say so and let the user
   decide; an orphan today may be a feature landing next week.
 - **A review that drops everything is refused** by the CLI, and rightly: that is

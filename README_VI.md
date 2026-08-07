@@ -222,8 +222,8 @@ về LLM, còn plugin là thứ nối hai nửa đó lại.
 /xforge:init          /xforge:docs         /xforge:sync
 /xforge:doctor        /xforge:inspect
 /xforge:test-doctor   /xforge:test-plan    /xforge:test-review
-/xforge:test-design   /xforge:test-run     /xforge:test-status
-/xforge:test-report
+/xforge:test-a11y     /xforge:test-design  /xforge:test-run
+/xforge:test-status   /xforge:test-report
 /xforge:dev-doctor    /xforge:dev-plan     /xforge:dev-run       (+12 command dev khác)
 ```
 
@@ -301,6 +301,7 @@ xforge test doctor
 xforge test setup
 xforge test plan --feature alarm --level smoke
 xforge test review XFPLAN-20260729-001      # giải quyết câu hỏi dead code
+xforge test a11y XFPLAN-20260729-001        # đề xuất accessibility identifier còn thiếu
 xforge test run XFPLAN-20260729-001
 xforge test status
 xforge test report
@@ -353,6 +354,47 @@ nó chỉ khiến Xcode không mở được project. Nên thao tác được ba
 cấu trúc cả trước lẫn sau khi ghi, và khôi phục từ backup nếu có bất thường. Nó
 cũng idempotent: dự án đã có UI test target thì được để yên. Kiểm tra
 `git diff -- '*.pbxproj'` trước khi commit.
+
+Lệnh này cũng đặt `XForgeTestSupport.swift` vào app target và chèn một lời gọi
+`XForgeTestSupport.configure()` vào `@main` App — đây là chỗ duy nhất XForge sửa
+product source. Chỉ có file thì không có tác dụng gì: phải có call site thì
+deterministic clock, network mock và seed data mới chạy được, nên "không sửa code
+sản phẩm" ở đây không có nghĩa là "ít xâm phạm hơn", mà là "tính năng không hoạt
+động". Sửa đúng bốn dòng, nằm trong `#if DEBUG` (bắt buộc: callee chỉ tồn tại ở
+DEBUG, gọi không guard sẽ không build được bản Release), và không làm gì nếu
+thiếu launch argument `--xforge-test`. Gặp hình dạng nó không nhận ra — `@main`
+kiểu UIKit, initializer tùy biến, hai type `@main` — nó báo lý do và không sửa gì;
+thân các hook đều là stub rỗng nên test vẫn chạy được mà không cần nó.
+
+### Accessibility identifier mà plan cần
+
+XCUITest tìm element qua `accessibilityIdentifier`. Một locator mà plan tìm nhưng
+không view nào khai báo sẽ khiến mọi case dùng nó fail vì timeout — và triage đọc
+timeout thành bug sản phẩm, nên báo cáo sẽ quy lỗi cho app vì một khiếm khuyết của
+test.
+
+```bash
+xforge test a11y XFPLAN-20260729-001           # một đề xuất cho mỗi locator
+xforge test a11y XFPLAN-20260729-001 --apply   # chỉ ghi những entry đã duyệt
+```
+
+Mọi entry mặc định `approved: false`, và đúng cái cổng đó mới là tính năng.
+Identifier thiếu thì fail ồn ào và được sửa ngay. Identifier đặt **sai element**
+thì không: gắn lên `VStack` thay vì `Button` bên trong, test sẽ tìm thấy element,
+tap, pass — mà không chạm gì tới thứ cần kiểm, âm thầm như thế suốt thời gian test
+còn tồn tại. Nên container không bao giờ được đề xuất, hai ứng viên ngang nhau thì
+không đề xuất gì cả (hai element đều hợp lý là một thông tin; biến nó thành một cú
+tung xu đội lốt giá trị mặc định là bỏ mất thông tin đó), và mỗi đề xuất đều nói
+rõ căn cứ. `/xforge:test-a11y` làm phần cần phán đoán: đọc view để quyết định
+locator thuộc về element nào.
+
+Khi apply, lệnh đọc lại dòng anchor và từ chối nếu file đã thay đổi, khớp indent
+theo đúng modifier chain sẵn có của element, rồi parse lại để chắc chắn đọc được
+identifier vừa ghi — mọi trường hợp khác đều để file nguyên vẹn. Modifier **không**
+bọc `#if DEBUG`, có chủ ý: identifier không đổi hành vi, còn bỏ nó khỏi bản Release
+sẽ khiến test chạy máy local thì pass nhưng timeout trên đúng bản build mà
+TestFlight dùng. Sau khi apply, chạy lại `xforge docs` rồi re-plan để model thấy
+chúng.
 
 ### Những thứ âm thầm làm mất coverage
 
@@ -510,6 +552,7 @@ và fixture để việc lập kế hoạch có thể chạy offline.
 /xforge:test-doctor
 /xforge:test-plan
 /xforge:test-review
+/xforge:test-a11y
 /xforge:test-design
 /xforge:test-run
 /xforge:test-status

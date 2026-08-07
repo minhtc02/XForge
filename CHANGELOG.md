@@ -6,6 +6,56 @@ All notable changes to XForge are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — `xforge test a11y`, and the call site the test hook was missing
+
+Two edits to _product_ source, which XForge had avoided entirely until now. The
+avoidance was not free: it left the QA module with a generated hook nobody
+called, and a plan whose locators could not be made to exist.
+
+**The hook.** `test setup` now writes `XForgeTestSupport.swift` into the app
+target and a `XForgeTestSupport.configure()` call into the `@main` App. The file
+alone was inert — a call site is what makes the deterministic clock, the network
+mock and the seed data reachable — so "do not touch product code" here meant
+"the feature does not work". The edit is four lines in one file, inside
+`#if DEBUG` (mandatory: the callee is DEBUG-only, so an unguarded call would not
+compile in Release), and inert without the `--xforge-test` launch argument. It
+refuses rather than guesses: a UIKit `@main`, a custom initializer, a one-line
+`init()`, two `@main` types, or a brace where none was expected each produce a
+reason and no edit. A refusal is a skip, not a failure — the hook bodies are
+empty stubs, so tests run without it. Both steps are gated on a UI test target
+existing; on a project that cannot be tested, editing it further is churn.
+
+**The identifiers.** `xforge test a11y <plan-id>` proposes one edit per locator
+the plan looks for and the source does not declare, and `--apply` writes only the
+entries marked `approved: true`.
+
+The gate is the design, not friction around it. A locator missing from source
+makes every case using it fail by timeout, which triage then reports as a product
+bug — bad, but loud, and fixed on the first run. An identifier on the _wrong_
+element is worse and quiet: put it on the `VStack` instead of the `Button` inside
+it and the test finds an element, taps it, passes, and exercises nothing, for as
+long as the test exists. So containers are never proposed, a tie produces no
+suggestion at all (two plausible elements is information, and a coin flip dressed
+as a default throws it away), and every entry defaults to unapproved. Each
+suggestion carries why it was made — `label-match`, or "it was the only
+unidentified element".
+
+Applying re-reads the anchor line and refuses if the file has moved on, inserts
+the modifier at the indentation the element's existing chain uses, and re-parses
+the file to confirm the identifier can be read back; anything else leaves the file
+untouched. The modifier is deliberately _not_ `#if DEBUG`-wrapped: an identifier
+changes no behaviour, and stripping it from Release would mean tests that pass
+locally time out on the build a TestFlight run exercises.
+
+On a project with no identifiers anywhere — the usual starting point —
+reconciliation reports nothing, because an empty inventory could mean the source
+was never inspected. It was inspected, so `test a11y` treats every locator as
+missing and says why, rather than claiming they all exist.
+
+`required_identifiers` from a review now survive into the plan and become
+proposals here. Before, a reviewer could record "this needs a `save-button`" and
+it went nowhere.
+
 ### Added — `xforge test setup`
 
 A project with no UI test target cannot be QA'd at all. XCUITest drives the app

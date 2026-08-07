@@ -70,7 +70,7 @@ packages/core        Zod project-model & config schemas, discovery (scanner/dete
                      prd (parser/coverage), ios (plist/xcode/pbxproj-edit),
                      generators (markdown/mermaid), sync, state, redaction, manual-blocks
 packages/test-core   models/ config/ planning/ generation/ execution/ analysis/
-                     results/ reporting/ figma/ approval/ state/
+                     results/ reporting/ figma/ approval/ setup/ state/
 packages/dev-core    models/ spec/ planning/ worktree/ execution/ journal/
                      design/ config/ state/
 apps/cli             Commander CLI (src/index.ts wires every command),
@@ -78,8 +78,8 @@ apps/cli             Commander CLI (src/index.ts wires every command),
                      src/commands/test/*, src/commands/dev/*,
                      src/model-builder.ts (repo → Project Model),
                      scripts/bundle.mjs (esbuild single-file bundle)
-plugins/claude       plugin.json, 29 commands/*.md, 22 agents/*.md, 5 skills/, bin/xforge
-schemas/             11 published JSON schemas
+plugins/claude       plugin.json, 30 commands/*.md, 22 agents/*.md, 5 skills/, bin/xforge
+schemas/             12 published JSON schemas
 templates/           doc templates
 test-fixtures/       ios-swiftui (SPM fixture with UI test target), figma
 docs/                development.md, test-optimizations-integration-plan.md
@@ -90,17 +90,17 @@ depends upward; `test-core`/`dev-core` never fork core.
 
 ## Runtime state layout
 
-| Path                      | Owner     | Contents                                                                                                            |
-| ------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------- |
-| `.xforge/config.yaml`     | core      | project config                                                                                                      |
-| `.xforge/state/`          | core      | project-model.json (core) + `state/model/` appendices, 6 state files                                                |
-| `.xforge/cache/`, `logs/` | core      | gitignored                                                                                                          |
-| `.xforge/test/`           | test-core | config.yaml, plans/`<plan-id>`/, generated-tests/, design-snapshots/, navigation.yaml                               |
-| `qa-runs/<run-id>/`       | test-core | summary.md/json, test-results.json, bugs.json, coverage.md, artifacts/{screens,diffs,probe}, xcresult/ (gitignored) |
-| `.xforge/dev/`            | dev-core  | plans/`<plan-id>`/, spec-staging/`<run-id>`/                                                                        |
-| `.xforge/worktrees/`      | dev-core  | isolated worktrees, branch `xforge/dev/<change-id>/<group>`                                                         |
-| `docs/project/`           | **user**  | the project's own PRD/specs — XForge reads, never writes                                                            |
-| `docs/xforge/`            | core      | the generated documentation tree (`output.root`)                                                                    |
+| Path                      | Owner     | Contents                                                                                                                           |
+| ------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `.xforge/config.yaml`     | core      | project config                                                                                                                     |
+| `.xforge/state/`          | core      | project-model.json (core) + `state/model/` appendices, 6 state files                                                               |
+| `.xforge/cache/`, `logs/` | core      | gitignored                                                                                                                         |
+| `.xforge/test/`           | test-core | config.yaml, plans/`<plan-id>`/ (plan.json, review.json, a11y-proposal.json), generated-tests/, design-snapshots/, navigation.yaml |
+| `qa-runs/<run-id>/`       | test-core | summary.md/json, test-results.json, bugs.json, coverage.md, artifacts/{screens,diffs,probe}, xcresult/ (gitignored)                |
+| `.xforge/dev/`            | dev-core  | plans/`<plan-id>`/, spec-staging/`<run-id>`/                                                                                       |
+| `.xforge/worktrees/`      | dev-core  | isolated worktrees, branch `xforge/dev/<change-id>/<group>`                                                                        |
+| `docs/project/`           | **user**  | the project's own PRD/specs — XForge reads, never writes                                                                           |
+| `docs/xforge/`            | core      | the generated documentation tree (`output.root`)                                                                                   |
 
 **The two docs trees must never overlap.** `docs/project/` is input,
 `docs/xforge/` is output. If output landed inside the input tree, the next run
@@ -133,7 +133,7 @@ export PATH="$HOME/.local/bin:$PATH"
 pnpm build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test
 ```
 
-Current baseline: **583 tests across 63 files, all green.** `pnpm test` takes
+Current baseline: **635 tests across 67 files, all green.** `pnpm test` takes
 ~10s; there is no reason to skip it.
 
 Run the CLI without installing: `pnpm --filter @xforge/cli dev -- <args>`
@@ -179,10 +179,17 @@ never overwriting a value the project set. `init --force` does regenerate and
 would discard hand edits; keep that distinction.
 
 **Test**: `doctor`, `setup`, `plan`, `navigation`, `design`, `generate`, `review`,
-`approve`, `run`,
+`a11y`, `approve`, `run`,
 `status`, `report`, `bugs`, `clean`. `test plan` is a pipeline — it preflights,
 scaffolds navigation, plans, generates XCUITest sources, wires them into the
 Xcode targets and approves, each step disableable with a `--no-*` flag.
+
+The two commands that touch **product** source are `setup` (the
+`XForgeTestSupport.configure()` call in the `@main` App — four lines, `#if DEBUG`,
+refuses any shape it does not recognise) and `a11y` (one
+`accessibilityIdentifier` per approved proposal entry). Everything else writes
+only test artifacts. Keep it that way: each of those two edits is narrow and
+individually approvable, which is the only reason they are acceptable at all.
 
 **Dev**: `doctor`, `plan`, `run`, `auto`, `status`, `report`, `review`, `accept`,
 `reject`, `clean`, the opt-in gates `build`/`test`/`ui-check`/`performance`, and
@@ -219,9 +226,16 @@ Xcode targets and approves, each step disableable with a `--no-*` flag.
   cases_ render as "Not detected (requires semantic analysis)" — they need the
   LLM layer.
 - **No CLI path for writing LLM results back into the _docs_ model** (a `model
-patch` command). The Test module now has one — `xforge test review` — and it
-  is the pattern to copy: template out, evidence-bearing verdicts in, CLI
-  performs the merge, re-hash invalidates approval.
+patch` command). The Test module now has two — `xforge test review` and
+  `xforge test a11y` — and they are the pattern to copy: template out,
+  evidence-bearing verdicts in, CLI performs the merge, re-hash invalidates
+  approval. `a11y` adds the variant for a write that lands in **product** source:
+  every entry defaults to unapproved, the anchor text is re-verified at apply
+  time, and the result is re-parsed before it is trusted.
+- `xforge test a11y` proposes a site from element labels only. It cannot tell a
+  screen root from a control, so a locator like `HomeScreen` (an anchor, not a
+  label) gets no suggestion — deliberately, but it means the common
+  `assert screen-is` case always needs a human or an agent to pick the site.
 - Discovery is iOS-hardcoded; there is no Android/Web adapter interface.
 - Real `--execute` QA against a booted device has never been validated here — the
   fixture is an SPM library with no app. Everything is unit-tested behind the

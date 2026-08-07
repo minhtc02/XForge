@@ -180,8 +180,8 @@ is the LLM's, and the plugin wires the two halves together.
 /xforge:init          /xforge:docs         /xforge:sync
 /xforge:doctor        /xforge:inspect
 /xforge:test-doctor   /xforge:test-plan    /xforge:test-review
-/xforge:test-design   /xforge:test-run     /xforge:test-status
-/xforge:test-report
+/xforge:test-a11y     /xforge:test-design  /xforge:test-run
+/xforge:test-status   /xforge:test-report
 /xforge:dev-doctor    /xforge:dev-plan     /xforge:dev-run       (+12 more dev commands)
 ```
 
@@ -246,9 +246,10 @@ app.
 
 ```bash
 xforge test doctor                          # environment + config health
-xforge test setup                           # create the UI test target if there is none
+xforge test setup                           # UI test target, scheme, test-support hook
 xforge test plan --feature alarm --level smoke
 xforge test review XFPLAN-20260729-001      # settle dead-code questions, fix the plan
+xforge test a11y XFPLAN-20260729-001        # propose the missing accessibility identifiers
 xforge test run XFPLAN-20260729-001         # dry run (add --execute for real)
 xforge test status   # --latest by default
 xforge test report
@@ -297,6 +298,47 @@ first, verified structurally before it is written and again afterwards, and
 restored from the backup on any surprise. It is also idempotent: a project that
 already has a UI test target is left alone. Check `git diff -- '*.pbxproj'`
 before committing.
+
+It also puts `XForgeTestSupport.swift` in the app target and a
+`XForgeTestSupport.configure()` call in the `@main` App — the only edit XForge
+makes to product source. The file alone does nothing; a call site is what makes
+the deterministic clock, network mock and seed data reachable, so declining to
+write it would not mean "less intrusion", it would mean the feature does not
+work. It is four lines, inside `#if DEBUG` (the callee is DEBUG-only, so an
+unguarded call would not compile in Release), and inert without the
+`--xforge-test` launch argument. Where the shape is not one it recognises — a
+UIKit `@main`, a custom initializer, two `@main` types — it reports why and
+changes nothing; the hook bodies are empty stubs, so tests run without it.
+
+### Accessibility identifiers the plan needs
+
+XCUITest finds elements by `accessibilityIdentifier`. A locator the plan looks
+for that no view declares makes every case using it fail by timeout — and triage
+reads a timeout as a product bug, so the report blames the app for a defect in
+the test.
+
+```bash
+xforge test a11y XFPLAN-20260729-001           # one proposed edit per locator
+xforge test a11y XFPLAN-20260729-001 --apply   # writes only the approved entries
+```
+
+Every entry starts at `approved: false`, and that gate is the feature. A missing
+identifier fails loudly and gets fixed. An identifier on the _wrong_ element does
+not: put it on the `VStack` instead of the `Button` inside it and the test finds
+an element, taps it, passes, and exercises nothing — invisibly, for as long as the
+test exists. So containers are never proposed, a tie yields no suggestion at all
+(two plausible elements is information; a coin flip dressed as a default throws it
+away), and each suggestion says why it was made. `/xforge:test-a11y` does the part
+that needs judgement: reading the view to decide which element a locator belongs
+to.
+
+Applying re-reads the anchor line and refuses if the file has changed since,
+matches the indentation the element's own modifier chain uses, and re-parses the
+result to confirm the identifier can be read back — anything else leaves the file
+untouched. The modifier is not `#if DEBUG`-wrapped on purpose: an identifier
+changes no behaviour, and stripping it from Release would mean tests that pass
+locally time out on the build a TestFlight run exercises. Afterwards, re-run
+`xforge docs` and re-plan so the model sees them.
 
 ### What silently costs coverage
 
@@ -390,8 +432,8 @@ Test config: `.xforge/test/config.yaml` (§26); a file-backed Figma adapter
 (`design-map.yaml` + fixture) keeps planning offline.
 
 Claude commands: `/xforge:test-doctor`, `/xforge:test-plan`,
-`/xforge:test-review`, `/xforge:test-design`, `/xforge:test-run`, `/xforge:test-status`,
-`/xforge:test-report`, plus 8 QA agents (`qa-lead`, `environment-agent`,
+`/xforge:test-review`, `/xforge:test-a11y`, `/xforge:test-design`, `/xforge:test-run`,
+`/xforge:test-status`, `/xforge:test-report`, plus 8 QA agents (`qa-lead`, `environment-agent`,
 `test-case-author`, `feature-test-agent`,
 `visual/performance/accessibility-analysis-agent`, `bug-triage-agent`).
 
