@@ -1,3 +1,13 @@
+import {
+  escapeRe,
+  findObjectByName,
+  insertIntoList,
+  insertIntoSection,
+  makeObjectId,
+  matchingBrace,
+  type PbxAnchor,
+} from "./pbxproj-internals.js";
+
 /**
  * Adding a source file to an Xcode target (optimization: remove the manual step).
  *
@@ -19,9 +29,6 @@
  * the target's folder is picked up with no project edit at all.
  * {@link usesSynchronizedGroups} detects that case, which is always preferable.
  */
-
-/** Object ids in a pbxproj are 24 uppercase hex characters. */
-const ID_LENGTH = 24;
 
 /**
  * True when the project uses `PBXFileSystemSynchronizedRootGroup` — Xcode 16+
@@ -50,67 +57,6 @@ export interface AddFileResult {
   detail?: string;
 }
 
-interface Anchor {
-  id: string;
-  body: string;
-  start: number;
-  end: number;
-}
-
-/** Locate the `<id> /* name *\/ = { ... };` block for a named object. */
-function findObject(
-  content: string,
-  name: string,
-  isa: string,
-): Anchor | undefined {
-  const re = new RegExp(
-    `([0-9A-Fa-f]{${ID_LENGTH}})\\s*\\/\\*\\s*${escapeRe(name)}\\s*\\*\\/\\s*=\\s*\\{`,
-    "g",
-  );
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(content)) !== null) {
-    const bodyStart = match.index + match[0].length;
-    const bodyEnd = matchingBrace(content, bodyStart);
-    if (bodyEnd === -1) continue;
-    const body = content.slice(bodyStart, bodyEnd);
-    if (!new RegExp(`isa\\s*=\\s*${isa};`).test(body)) continue;
-    return { id: match[1]!, body, start: bodyStart, end: bodyEnd };
-  }
-  return undefined;
-}
-
-/** Index just past the `}` closing the block opened before `from`. */
-function matchingBrace(content: string, from: number): number {
-  let depth = 1;
-  for (let i = from; i < content.length; i++) {
-    const ch = content[i];
-    if (ch === "{") depth += 1;
-    else if (ch === "}") {
-      depth -= 1;
-      if (depth === 0) return i;
-    }
-  }
-  return -1;
-}
-
-/** A deterministic, collision-checked object id derived from the file name. */
-function makeId(content: string, seed: string, salt: string): string {
-  let hash = 0x811c9dc5;
-  for (const ch of `${seed}:${salt}`) {
-    hash ^= ch.charCodeAt(0);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  let id = "";
-  let value = hash;
-  while (id.length < ID_LENGTH) {
-    id += value.toString(16).toUpperCase().padStart(8, "0");
-    value = Math.imul(value ^ 0x9e3779b9, 0x85ebca6b) >>> 0;
-  }
-  id = id.slice(0, ID_LENGTH);
-  // Extremely unlikely, but a duplicate id would corrupt the project.
-  return content.includes(id) ? makeId(content, seed, `${salt}!`) : id;
-}
-
 export interface AddFileInput {
   content: string;
   /** Target that should compile the file, e.g. `MyAppUITests`. */
@@ -132,7 +78,7 @@ export function addFileToTarget(input: AddFileInput): AddFileResult {
     return { skipped: "already-present" };
   }
 
-  const target = findObject(content, targetName, "PBXNativeTarget");
+  const target = findObjectByName(content, targetName, "PBXNativeTarget");
   if (!target) {
     return {
       skipped: "target-not-found",
@@ -159,13 +105,13 @@ export function addFileToTarget(input: AddFileInput): AddFileResult {
   // Any main group will do for the reference to resolve; prefer the target's
   // own group when one shares its name.
   const group =
-    findObject(content, targetName, "PBXGroup") ?? findMainGroup(content);
+    findObjectByName(content, targetName, "PBXGroup") ?? findMainGroup(content);
   if (!group) {
     return { skipped: "no-group", detail: "No PBXGroup to attach the file to" };
   }
 
-  const fileRefId = makeId(content, fileName, "ref");
-  const buildFileId = makeId(content, fileName, "build");
+  const fileRefId = makeObjectId(content, fileName, "ref");
+  const buildFileId = makeObjectId(content, fileName, "build");
 
   let next = content;
 
@@ -220,7 +166,7 @@ function findObjectById(
   content: string,
   id: string,
   isa: string,
-): Anchor | undefined {
+): PbxAnchor | undefined {
   const re = new RegExp(`\\b${id}\\b[^=]*=\\s*\\{`);
   const match = re.exec(content);
   if (!match) return undefined;
@@ -233,7 +179,7 @@ function findObjectById(
 }
 
 /** The project's root group — the fallback place to attach a reference. */
-function findMainGroup(content: string): Anchor | undefined {
+function findMainGroup(content: string): PbxAnchor | undefined {
   const re =
     /([0-9A-Fa-f]{24})\s*(?:\/\*[^*]*\*\/\s*)?=\s*\{\s*\n?\s*isa = PBXGroup;/g;
   const match = re.exec(content);
@@ -242,37 +188,6 @@ function findMainGroup(content: string): Anchor | undefined {
 }
 
 /** Insert a line at the top of a `/* Begin X section *\/` block. */
-function insertIntoSection(
-  content: string,
-  section: string,
-  line: string,
-): string {
-  const marker = `/* Begin ${section} section */`;
-  const at = content.indexOf(marker);
-  if (at === -1) return content;
-  const lineEnd = content.indexOf("\n", at);
-  if (lineEnd === -1) return content;
-  return `${content.slice(0, lineEnd + 1)}${line}\n${content.slice(lineEnd + 1)}`;
-}
-
-function insertIntoList(
-  content: string,
-  objectId: string,
-  listName: string,
-  line: string,
-): string {
-  const object = new RegExp(`\\b${objectId}\\b[^=]*=\\s*\\{`).exec(content);
-  if (!object) return content;
-  const bodyStart = object.index + object[0].length;
-  const bodyEnd = matchingBrace(content, bodyStart);
-  if (bodyEnd === -1) return content;
-  const body = content.slice(bodyStart, bodyEnd);
-  const listAt = body.indexOf(`${listName} = (`);
-  if (listAt === -1) return content;
-  const insertAt = bodyStart + listAt + `${listName} = (`.length;
-  return `${content.slice(0, insertAt)}\n${line}${content.slice(insertAt)}`;
-}
-
 function insertIntoChildren(
   content: string,
   groupId: string,
@@ -323,8 +238,4 @@ export function verifyPbxproj(
     };
   }
   return { ok: true };
-}
-
-function escapeRe(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
