@@ -133,7 +133,7 @@ export PATH="$HOME/.local/bin:$PATH"
 pnpm build && pnpm typecheck && pnpm lint && pnpm format:check && pnpm test
 ```
 
-Current baseline: **551 tests across 60 files, all green.** `pnpm test` takes
+Current baseline: **563 tests across 61 files, all green.** `pnpm test` takes
 ~10s; there is no reason to skip it.
 
 Run the CLI without installing: `pnpm --filter @xforge/cli dev -- <args>`

@@ -54,8 +54,34 @@ their conclusions to reach the plan instead of a side document nobody executes.
 - Reviewer-added cases inherit risk score, priority and requirement links from
   their feature rather than asserting their own, so the write-back path cannot
   become a route to inventing requirements.
+- **`--approve` closes the loop.** `xforge test review <plan-id> --apply
+--approve` regenerates the XCUITest sources and approves, so an agent that
+  investigated the plan can take it all the way to runnable in one command
+  instead of four.
+
+  It approves only if the review answered every question that withheld approval.
+  A flagged case left at a bare `keep` is silence, not an answer, and is refused
+  with the cases named — auto-approving a review that investigated nothing would
+  turn "we do not know whether this tests dead code" into "approved", which is
+  worse than the original problem because the doubt stops being visible. A
+  `keep` carrying a rationale and evidence passes, and should: the reachability
+  check is lexical and misses reflection and storyboards by design, so
+  "I checked, it is live" is the expected answer a good share of the time.
+
+  Regeneration is not optional here. After a retarget the emitted Swift still
+  drives at the old anchor, and approving sources that disagree with the plan
+  they are bound to would defeat the hash binding entirely.
+
 - `TestabilityIssue` gained `subjects`, so a caller can act on an issue without
   parsing its prose.
+
+### Fixed
+
+- A scaffolded navigation graph with no nodes or edges crashed `xforge test
+plan` with a Zod error about `edges` — an empty YAML sequence parses as null,
+  not `[]`, so the command rejected the file it had just written itself. The
+  renderer now emits `nodes: []` / `edges: []`, and the schema treats a blank
+  section as empty, which also covers a graph someone edited by hand.
 
 ## [Unreleased — documentation trees]
 

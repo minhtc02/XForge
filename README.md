@@ -314,6 +314,7 @@ someone who can grep the repository and read the call sites, which is what
 xforge test review <plan-id>            # template + the open questions
 # investigate, fill in the verdicts
 xforge test review <plan-id> --apply    # merged into the plan deterministically
+xforge test review <plan-id> --apply --approve   # …and regenerate + approve
 ```
 
 In Claude Code, `/xforge:test-review <plan-id>` does the investigation itself:
@@ -328,6 +329,27 @@ re-hash invalidates any prior approval.
 A review that would drop every case is refused. That is a planning failure, not
 a review: fix the inputs and re-plan rather than approve an empty plan that
 passes.
+
+`--approve` closes the loop: it regenerates the XCUITest sources (mandatory
+after a retarget — the old Swift still drives at the old anchor) and approves,
+so the whole cycle from "the planner got it wrong" to "ready to run" is one
+command. It approves **only if the review answered every question that withheld
+approval in the first place.** A flagged case left at a bare `keep` is silence,
+not an answer, and is refused with the cases named:
+
+```
+NOT approved — the review did not settle every open question:
+  - CategoryDetailScreen: 1 case(s) (TC-DISCOVERY-001) were left at `keep`
+    with no rationale or evidence, so the dead-code question was never answered.
+```
+
+That gate is the point of the feature, not an obstacle to it. Auto-approving a
+review that investigated nothing converts "we do not know whether this tests
+dead code" into "approved", which is strictly worse than the original problem
+because the doubt becomes invisible. A `keep` **with** rationale and evidence
+("reached by a `NavigationLink` the lexical scan cannot see") is a real answer
+and passes — that case is common, since the check misses reflection and
+storyboards by design.
 
 When `plan` reports `xcodeIntegration.method: none`, the sources were not wired
 in — add `XForgeUITests.swift` to the UI test target and `XForgeTestSupport.swift`

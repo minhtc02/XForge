@@ -78,33 +78,59 @@ runs.
    before these cases can work. **Record them; do not add them.** Editing
    product source is not this command's job.
 
-5. Apply:
+5. Apply. If the user asked you to take it all the way to a run, add
+   `--approve`:
 
    ```bash
    xforge test review $ARGUMENTS --apply --json
+   # or, to close the loop in one step:
+   xforge test review $ARGUMENTS --apply --approve --json
    ```
 
-   The CLI performs the merge — you never write `plan.json` directly. It keeps
-   suites, shards and stats consistent, records every verdict in the plan for
-   later readers, and deletes the approval, because the plan it authorized no
-   longer exists.
+   The CLI performs the merge — you never write `plan.json`. It keeps suites,
+   shards and stats consistent, records every verdict in the plan for later
+   readers, and deletes the approval, because the plan it authorized no longer
+   exists.
+
+   `--approve` regenerates the XCUITest sources (mandatory after a retarget: the
+   old Swift still points at the old anchors) and approves — **but only if the
+   review answered every question that withheld approval**. A flagged case left
+   at `keep` with no rationale and no evidence is silence, not an answer, and
+   the CLI refuses: approving there would convert "we do not know whether this
+   tests dead code" into "approved", which is worse than the original problem
+   because the doubt becomes invisible.
+
+   So if you could not settle a question, say so and leave it — do not write a
+   hollow `keep` to get past the gate. A `keep` **with** rationale and evidence
+   ("reached via `NavigationLink` in `Router.swift:42`") is a real answer and
+   passes.
 
 6. Report: what you dropped and why, what you retargeted and to where, what you
-   added, and which questions you could not settle. Then:
+   added, and which questions you could not settle. If `--approve` refused,
+   relay `unresolved` verbatim — that list is the work still outstanding.
+
+   Then run it, if that is what the user asked for:
+
+   ```bash
+   xforge test run <plan-id>             # dry run: records the commands
+   xforge test run <plan-id> --execute   # needs Xcode + sources in the targets
+   ```
+
+   Without `--approve`, approval stays the user's to give:
 
    ```bash
    xforge test generate <plan-id> --force
    xforge test approve <plan-id>
    ```
 
-   Approval is the user's consent. Tell them what changed and let them approve;
-   do not approve on their behalf unless they asked you to.
-
 ## Rules
 
 - **Evidence or no verdict.** "This looks like dead code" is not a finding;
   "the only match for `CategoryDetailScreen` is its declaration at
   `Views/CategoryDetailScreen.swift:12`" is.
+- **Never approve past a question you could not answer.** `--approve` enforces
+  this, but do not try to satisfy it with an empty `keep`. Leaving a question
+  open and saying so is a good outcome; hiding it is not.
 - **Never edit product source here.** Missing identifiers are recorded for the
   user, not added by you. XForge changes test artifacts, not the app.
 - **Do not delete screens.** If a screen is dead, say so and let the user

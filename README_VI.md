@@ -378,6 +378,7 @@ key. Nó cần người đọc được call site, và đó là việc của `xf
 xforge test review <plan-id>            # template + các câu hỏi còn bỏ ngỏ
 # điều tra, điền verdict
 xforge test review <plan-id> --apply    # merge vào plan một cách deterministic
+xforge test review <plan-id> --apply --approve   # …rồi sinh lại source và approve
 ```
 
 Trong Claude Code, `/xforge:test-review <plan-id>` tự làm phần điều tra: grep
@@ -391,6 +392,26 @@ trong plan cho người đọc sau, và việc re-hash làm mọi approval cũ m
 Một review làm rỗng toàn bộ case sẽ bị từ chối. Đó là thất bại của khâu lập plan
 chứ không phải một review: hãy sửa đầu vào rồi plan lại, thay vì approve một plan
 rỗng luôn pass.
+
+`--approve` khép kín vòng lặp: nó sinh lại source XCUITest (bắt buộc sau khi
+retarget — file Swift cũ vẫn trỏ vào anchor cũ) rồi approve, nên toàn bộ chặng
+từ "planner làm sai" tới "sẵn sàng chạy" gói trong một lệnh. Nhưng nó **chỉ
+approve nếu review đã trả lời hết những câu hỏi vốn khiến plan bị giữ lại.** Một
+case bị đánh dấu mà để nguyên `keep` trống là im lặng chứ không phải câu trả lời,
+và sẽ bị từ chối kèm tên case:
+
+```
+NOT approved — the review did not settle every open question:
+  - CategoryDetailScreen: 1 case(s) (TC-DISCOVERY-001) were left at `keep`
+    with no rationale or evidence, so the dead-code question was never answered.
+```
+
+Cửa chặn đó chính là giá trị của tính năng, không phải vật cản. Tự approve một
+review chẳng điều tra gì sẽ biến "chưa biết cái này có test dead code không"
+thành "đã duyệt" — tệ hơn hẳn vấn đề ban đầu, vì nghi ngờ trở nên vô hình. Một
+`keep` **có kèm** rationale và evidence ("được present qua `NavigationLink` mà
+phép quét từ vựng không thấy") là câu trả lời thật và sẽ đi qua — trường hợp này
+rất hay gặp, vì phép kiểm tra vốn không thấy reflection và storyboard.
 
 Quy trình run:
 
