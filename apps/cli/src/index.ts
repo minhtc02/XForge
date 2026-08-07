@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { ExitCode, isXForgeError, XFORGE_VERSION } from "@xforge/shared";
+import {
+  ExitCode,
+  isXForgeError,
+  ValidationError,
+  XFORGE_VERSION,
+} from "@xforge/shared";
 import { createContext, type GlobalOptions } from "./context.js";
 import { runInit } from "./commands/init.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -16,6 +21,7 @@ import { runTestGenerate } from "./commands/test/generate.js";
 import { runTestNavigation } from "./commands/test/navigation.js";
 import { runTestDesign } from "./commands/test/design.js";
 import { runTestRun } from "./commands/test/run.js";
+import { runTestReview } from "./commands/test/review.js";
 import {
   runTestBugs,
   runTestClean,
@@ -135,24 +141,42 @@ program
 
 const docs = program
   .command("docs")
-  .description("Generate project documentation from source + docs")
+  .description(
+    "Generate project documentation (from the project's own documents by default)",
+  )
   .option("--focus <topics>", "comma-separated focus areas")
   .option("--prd <path>", "path to a PRD document")
   .option("--input <path>", "additional input document")
   .option("--language <lang>", "output language (e.g. vi, en)")
+  .option(
+    "--from-code",
+    "build from source code instead of the project's documents",
+    false,
+  )
+  .option("--from-docs", "build from the project's documents (default)", false)
+  .option("-y, --yes", "accept the configured source without asking", false)
   .option("--dry-run", "do not write files", false)
   .action(async (opts, cmd: Command) => {
-    await run(
-      (ctx) =>
-        runDocs(ctx, {
-          focus: opts.focus,
-          prd: opts.prd,
-          input: opts.input,
-          language: opts.language,
-          dryRun: opts.dryRun,
-        }),
-      cmd,
-    );
+    await run((ctx) => {
+      if (opts.fromCode && opts.fromDocs) {
+        throw new ValidationError(
+          "--from-code and --from-docs are mutually exclusive; pass one.",
+        );
+      }
+      return runDocs(ctx, {
+        focus: opts.focus,
+        prd: opts.prd,
+        input: opts.input,
+        language: opts.language,
+        ...(opts.fromCode
+          ? { source: "code" as const }
+          : opts.fromDocs
+            ? { source: "project-docs" as const }
+            : {}),
+        yes: opts.yes,
+        dryRun: opts.dryRun,
+      });
+    }, cmd);
   });
 
 docs
@@ -292,6 +316,25 @@ test
       (ctx) =>
         runTestGenerate(ctx, planId, {
           probe: opts.probe,
+          force: opts.force,
+        }),
+      cmd,
+    );
+  });
+
+test
+  .command("review")
+  .description(
+    "Review a plan's cases against the source (writes a template; --apply merges it back)",
+  )
+  .argument("<plan-id>")
+  .option("--apply", "apply the filled review to the plan", false)
+  .option("--force", "overwrite an existing review template", false)
+  .action(async (planId: string, opts, cmd: Command) => {
+    await run(
+      (ctx) =>
+        runTestReview(ctx, planId, {
+          apply: opts.apply,
           force: opts.force,
         }),
       cmd,

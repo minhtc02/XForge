@@ -54,9 +54,12 @@ export async function runSync(ctx: CliContext): Promise<SyncResult> {
   const changed = [...check.changed, ...check.added, ...check.removed];
   const scope = await computeScope(projectRoot, changed);
 
+  // `sync` re-runs a decision the user already made: it regenerates what a
+  // previous `docs` produced. Asking again on every file change would be noise,
+  // so the configured source applies silently.
   const docs = await runDocs(
     { ...ctx, json: false },
-    scope ? { onlyDocuments: scope } : {},
+    scope ? { onlyDocuments: scope, yes: true } : { yes: true },
   );
 
   const result: SyncResult = {

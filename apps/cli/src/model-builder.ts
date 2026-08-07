@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import {
   analyzeCoverage,
+  analyzeScreenReachability,
   analyzeSwiftFile,
   collectAccessibilityIdentifiers,
   collectSymbols,
@@ -28,6 +29,7 @@ import {
   scanFiles,
   type AnalyzedSource,
   type Assumption,
+  type DocsSource,
   type Feature,
   type PlistFacts,
   type ProjectModel,
@@ -56,12 +58,26 @@ export interface BuildModelResult {
   files: ScannedFile[];
   fileIndex: Record<string, string>;
   matrix: CoverageRow[];
+  /** How many project documents were read as a source of truth. */
+  projectDocCount: number;
+}
+
+export interface BuildModelOptions {
+  /**
+   * Which truth leads. Under `project-docs` the documents in
+   * `sources.project_docs` are parsed for requirements and principles and win
+   * on conflict; under `code` they are still read, but only as secondary
+   * documentation used to decide what is documented.
+   */
+  docsSource?: DocsSource;
 }
 
 export async function buildProjectModel(
   projectRoot: string,
   config: XForgeConfig,
+  options: BuildModelOptions = {},
 ): Promise<BuildModelResult> {
+  const docsSource = options.docsSource ?? config.generation.docs_source;
   const files = await scanFiles(projectRoot, {
     exclude: [...config.exclude, `${config.output.root}/**`],
   });
@@ -82,6 +98,7 @@ export async function buildProjectModel(
   const sourceFiles: ProjectModel["source_files"] = [];
   const analyzed: AnalyzedSource[] = [];
   const documents: Array<{ path: string; content: string }> = [];
+  const projectDocs: Array<{ path: string; content: string }> = [];
   const plistSources: Array<{ path: string; facts: PlistFacts }> = [];
 
   for (const file of files) {
@@ -119,6 +136,15 @@ export async function buildProjectModel(
     ) {
       documents.push({ path: file.path, content });
     }
+    // The project's own documentation tree — the default source of truth.
+    // Tracked separately from `documents` because these carry requirements,
+    // not just coverage signal.
+    if (
+      file.path.endsWith(".md") &&
+      matchesAny(file.path, config.sources.project_docs)
+    ) {
+      projectDocs.push({ path: file.path, content });
+    }
   }
 
   // --- Feature detection (§13) ---
@@ -128,11 +154,22 @@ export async function buildProjectModel(
   const features: Feature[] = detectFeatures({ sources: analyzed, explicit });
 
   // --- PRD / Spec Kit / BMAD requirement parsing (§12) ---
-  const requirements = await parseRequirements(projectRoot, config, files);
+  const requirements = await parseRequirements(
+    projectRoot,
+    config,
+    files,
+    docsSource,
+  );
 
   // --- Coverage + gap analysis (§12) ---
+  // A feature counts as documented if any hand-written doc mentions it; the
+  // project's own tree is included so a feature described only there is not
+  // reported as undocumented.
   const coverage = analyzeCoverage(requirements, features, {
-    documentedFeatures: detectDocumentedFeatures(features, documents),
+    documentedFeatures: detectDocumentedFeatures(features, [
+      ...documents,
+      ...projectDocs.filter((d) => !documents.some((x) => x.path === d.path)),
+    ]),
   });
 
   // --- Principles from constitution (§3.1) ---
@@ -223,6 +260,10 @@ export async function buildProjectModel(
       analyzed,
       featureOf,
     ),
+    // Which screens nothing else refers to. Kept in the core model rather than
+    // an appendix: it is small, and it is exactly the kind of fact an agent
+    // needs before it trusts a generated test plan.
+    screen_reachability: analyzeScreenReachability(analyzed, coverage.features),
     capabilities,
     background_modes: backgroundModes,
     url_schemes: urlSchemes,
@@ -232,7 +273,8 @@ export async function buildProjectModel(
       requirements: coverage.requirements,
       dataModels,
       hasPlist: plistSources.length > 0,
-      hasDocuments: documents.length > 0,
+      hasDocuments: documents.length + projectDocs.length > 0,
+      docsSource,
     }),
     metadata: {
       generator_version: XFORGE_VERSION,
@@ -240,7 +282,13 @@ export async function buildProjectModel(
     },
   });
 
-  return { model, files, fileIndex, matrix: coverage.matrix };
+  return {
+    model,
+    files,
+    fileIndex,
+    matrix: coverage.matrix,
+    projectDocCount: projectDocs.length,
+  };
 }
 
 /**
@@ -253,6 +301,7 @@ function buildAssumptions(input: {
   dataModels: ProjectModel["data_models"];
   hasPlist: boolean;
   hasDocuments: boolean;
+  docsSource: DocsSource;
 }): Assumption[] {
   const assumptions: Assumption[] = [];
   let seq = 0;
@@ -304,17 +353,38 @@ function buildAssumptions(input: {
       0.6,
     );
   }
+  if (input.docsSource === "code") {
+    add(
+      "This documentation was built from source code, so it records what the app does — not what it was specified to do. Requirements found only in project documents were not treated as intent.",
+      0.6,
+    );
+  }
   return assumptions;
 }
 
-/** Determine which config source list a given path belongs to. */
+/**
+ * Determine which config source list a given path belongs to.
+ *
+ * The PRD/Spec Kit/BMAD lists are always authoritative. `sources.project_docs`
+ * additionally yields requirements when the run leads with documents — that is
+ * what "docs are the source of truth" means concretely. Under `code` those same
+ * documents are still read elsewhere for coverage, but they no longer *create*
+ * requirements, so the traceability matrix reflects the repository alone.
+ */
 function sourceTypeForPath(
   path: string,
   config: XForgeConfig,
+  docsSource: DocsSource,
 ): SourceType | undefined {
   if (matchesAny(path, config.sources.prd)) return "prd";
   if (matchesAny(path, config.sources.bmad)) return "bmad";
   if (matchesAny(path, config.sources.speckit)) return "speckit";
+  if (
+    docsSource === "project-docs" &&
+    matchesAny(path, config.sources.project_docs)
+  ) {
+    return "docs";
+  }
   return undefined;
 }
 
@@ -322,6 +392,7 @@ async function parseRequirements(
   projectRoot: string,
   config: XForgeConfig,
   files: ScannedFile[],
+  docsSource: DocsSource,
 ): Promise<Requirement[]> {
   const requirements: Requirement[] = [];
   const seen = new Set<string>();
@@ -330,7 +401,7 @@ async function parseRequirements(
     // The constitution is project *rules* (§3.1), not requirements — it feeds
     // principles, not the PRD requirement set. Never mix the two truths.
     if (/constitution\.md$/i.test(file.path)) continue;
-    const sourceType = sourceTypeForPath(file.path, config);
+    const sourceType = sourceTypeForPath(file.path, config, docsSource);
     if (!sourceType) continue;
     const content = await readTextFileSafe(projectRoot, file.path);
     if (content === null) continue;

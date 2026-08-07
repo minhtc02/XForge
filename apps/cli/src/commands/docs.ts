@@ -40,11 +40,14 @@ import {
   splitProjectModel,
   statePath,
   writeProjectModel,
+  type DocsSource,
   type GenContext,
   type ProjectModel,
+  type XForgeConfig,
 } from "@xforge/core";
 import type { Logger } from "@xforge/shared";
 import { buildProjectModel } from "../model-builder.js";
+import { canPrompt, selectOne } from "../prompt.js";
 import { emitResult, type CliContext } from "../context.js";
 
 export interface DocsOptions {
@@ -53,6 +56,14 @@ export interface DocsOptions {
   input?: string;
   language?: string;
   dryRun?: boolean;
+  /**
+   * Which truth to lead with. Undefined means "not specified on the command
+   * line" — the configured default applies, confirmed interactively when the
+   * terminal allows it.
+   */
+  source?: DocsSource;
+  /** Skip the source confirmation prompt (CI, scripts, `docs sync`). */
+  yes?: boolean;
   /**
    * Restrict writes to these output-relative document paths (blueprint §21).
    * `_meta` artifacts and state files are always written — they *are* the model.
@@ -63,6 +74,12 @@ export interface DocsOptions {
 export interface DocsResult {
   projectRoot: string;
   dryRun: boolean;
+  /** Which truth this run led with. */
+  source: DocsSource;
+  /** Where the project's own documents were read from, when they were. */
+  projectDocGlobs: string[];
+  /** How many project documents the run actually found. */
+  projectDocCount: number;
   modelPath: string;
   fileIndexPath: string;
   writtenFiles: string[];
@@ -82,6 +99,42 @@ export interface DocsResult {
 }
 
 /**
+ * Decide which truth `docs` leads with, asking when it is safe to ask.
+ *
+ * The order is: an explicit `--from-docs` / `--from-code` always wins; then
+ * `--yes` or a non-interactive context takes the configured default silently;
+ * otherwise the user confirms. The prompt exists because the two answers
+ * produce genuinely different documentation, and the configured default is
+ * only a guess about which one this particular run wants.
+ */
+async function resolveDocsSource(
+  ctx: CliContext,
+  config: XForgeConfig,
+  options: DocsOptions,
+): Promise<DocsSource> {
+  const configured = config.generation.docs_source;
+  if (options.source) return options.source;
+  if (options.yes || !canPrompt(ctx)) return configured;
+
+  return selectOne<DocsSource>(
+    "Which source should this documentation be built from?",
+    [
+      {
+        value: "project-docs",
+        label: "Project documents",
+        hint: `— ${config.sources.project_docs.join(", ")} lead; code supplies evidence`,
+      },
+      {
+        value: "code",
+        label: "Source code",
+        hint: "— the repository leads; project documents are secondary",
+      },
+    ],
+    configured === "project-docs" ? 0 : 1,
+  );
+}
+
+/**
  * `xforge docs` (blueprint §5.3, §7, §24.2).
  *
  * Runs the full deterministic pipeline and writes the documentation tree:
@@ -98,15 +151,34 @@ export async function runDocs(
   const config = await loadConfig(projectRoot);
   if (options.language) config.output.language = options.language;
 
-  logger.info("Building Canonical Project Model");
-  const { model, fileIndex, matrix } = await buildProjectModel(
+  // Which truth leads. An explicit flag wins; otherwise the configured default
+  // is *confirmed* rather than assumed, because generating a whole tree from
+  // the wrong source is expensive to notice and annoying to undo. In CI or
+  // under --json there is no one to ask, so the configured value stands.
+  const source = await resolveDocsSource(ctx, config, options);
+
+  const projectDocGlobs = config.sources.project_docs;
+
+  logger.info("Building Canonical Project Model", { source });
+  const { model, fileIndex, matrix, projectDocCount } = await buildProjectModel(
     projectRoot,
     config,
+    { docsSource: source },
   );
 
-  // `docs` is non-interactive by design (§24.2 supports --json / CI use): a
-  // missing PRD is reported, never prompted for. Requirement authoring belongs
-  // to the user's own PRD/Spec Kit/BMAD workflow, not to a doc generation run.
+  // Leading with documents that do not exist would silently degrade to a
+  // code-only run and label it "from docs" — say so instead.
+  if (source === "project-docs" && projectDocCount === 0) {
+    logger.warn(
+      `No project documents found under ${projectDocGlobs.join(", ")}. ` +
+        "The documentation will describe what the code does, not what it was " +
+        "meant to do. Add your PRD/specs there, or re-run with --from-code.",
+    );
+  }
+
+  // A missing PRD is reported, never prompted for: requirement authoring
+  // belongs to the user's own PRD/Spec Kit/BMAD workflow, not to a doc
+  // generation run. The only question `docs` asks is which source to lead with.
   if (model.requirements.length === 0) {
     logger.warn(
       "No PRD requirements found — traceability will be empty. Add a PRD " +
@@ -282,6 +354,9 @@ export async function runDocs(
   const result: DocsResult = {
     projectRoot,
     dryRun: Boolean(options.dryRun),
+    source,
+    projectDocGlobs,
+    projectDocCount,
     modelPath: metaModelPath,
     fileIndexPath,
     publishedFullModel: config.generation.publish_full_model,
@@ -393,7 +468,12 @@ function renderDocsSummary(logger: Logger, result: DocsResult): void {
     logger.success("Documentation generated");
   }
   process.stderr.write(
-    `\n  Features:      ${result.stats.features}\n` +
+    `\n  Source:        ${
+      result.source === "project-docs"
+        ? `project documents (${result.projectDocCount} found)`
+        : "source code"
+    }\n` +
+      `  Features:      ${result.stats.features}\n` +
       `  Requirements:  ${result.stats.requirements}\n` +
       `  Swift files:   ${result.stats.swiftFiles}\n` +
       `  Technologies:  ${result.stats.technologies}\n` +
