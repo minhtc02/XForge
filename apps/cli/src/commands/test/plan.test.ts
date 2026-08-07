@@ -40,6 +40,13 @@ async function scaffoldProject(dir: string): Promise<void> {
     join(dir, "App/Features/Alarm/AlarmViewModel.swift"),
     "import Foundation\nfinal class AlarmViewModel: ObservableObject {}\n",
   );
+  // Something has to present AlarmView, or the reachability check correctly
+  // reports it as an orphan and the plan withholds approval — see the
+  // dead-screen tests below, which rely on that.
+  await writeFile(
+    join(dir, "App/Features/Alarm/AlarmRouter.swift"),
+    "import SwiftUI\nstruct AlarmRouter {\n  func destination() -> some View { AlarmView() }\n}\n",
+  );
   await writeFile(
     join(dir, "AppUITests/AlarmUITests.swift"),
     "import XCTest\nfinal class AlarmUITests: XCTestCase { func testLaunch() {} }\n",
@@ -131,7 +138,7 @@ describe("published model", () => {
 
     const published = JSON.parse(
       await readFile(
-        join(root, "docs/project/_meta/project-model.json"),
+        join(root, "docs/xforge/_meta/project-model.json"),
         "utf8",
       ),
     );
@@ -162,7 +169,7 @@ describe("published model", () => {
 
     const published = JSON.parse(
       await readFile(
-        join(root, "docs/project/_meta/project-model.json"),
+        join(root, "docs/xforge/_meta/project-model.json"),
         "utf8",
       ),
     );

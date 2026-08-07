@@ -95,6 +95,12 @@ export interface TestPlanResult {
     backup?: string;
   };
   approved: boolean;
+  /**
+   * Screens the plan targets that nothing else in the app refers to. Approval
+   * is withheld while this is non-empty: the cases may be testing dead code,
+   * and only a source investigation can tell.
+   */
+  unreferencedScreens: string[];
   /** Hash the approval is bound to, when this run approved the plan. */
   planHash?: string;
 }
@@ -343,9 +349,22 @@ export async function runTestPlan(
   // Folded in so the common path is one command. The hash binding is kept, so
   // a plan that later drifts still cannot run; what is skipped is the pause,
   // not the guarantee. `--no-approve` restores the explicit gate.
+  //
+  // Except when the plan targets a screen nothing refers to. Then the pause is
+  // the whole point: auto-approving would rubber-stamp a plan that may be
+  // testing dead code, and the resulting green run would be evidence of
+  // nothing. Approval is withheld and the user is pointed at `test review`,
+  // which is where that question actually gets answered.
+  const orphanIssues = plan.testability_issues.filter(
+    (i) => i.kind === "screen-not-referenced",
+  );
+  const unreferencedScreenNames = [
+    ...new Set(orphanIssues.flatMap((i) => i.subjects)),
+  ].sort();
+  const needsReview = orphanIssues.length > 0;
   let approved = false;
   let planHash: string | undefined;
-  if (options.approve !== false) {
+  if (options.approve !== false && !needsReview) {
     const approval = await runTestApprove(ctx, planId, { silent: true });
     approved = approval.approved;
     planHash = approval.planHash;
@@ -376,6 +395,7 @@ export async function runTestPlan(
     ...(generateSkippedReason ? { generateSkippedReason } : {}),
     ...(xcodeIntegration ? { xcodeIntegration } : {}),
     approved,
+    unreferencedScreens: unreferencedScreenNames,
     ...(planHash ? { planHash } : {}),
   };
 
@@ -457,6 +477,16 @@ export async function runTestPlan(
       process.stderr.write(
         `\n  Approved:           ${result.planHash?.slice(0, 23)}…\n`,
       );
+    } else if (result.unreferencedScreens.length > 0) {
+      process.stderr.write(
+        `\n  NOT approved — nothing in the app refers to: ${result.unreferencedScreens.join(", ")}.\n` +
+          "  If those screens are dead code, these cases test something the user\n" +
+          "  cannot reach, and a green run would prove nothing. Settle it first:\n" +
+          `    /xforge:test-review ${planId}   # in Claude Code: investigate + fix the plan\n` +
+          `    xforge test review ${planId}    # or review by hand\n` +
+          "  The check is lexical, so a screen reached by reflection or a\n" +
+          "  storyboard will look unreferenced too — confirm before deleting anything.\n",
+      );
     }
 
     for (const warning of result.preflight?.warnings ?? []) {
@@ -469,7 +499,11 @@ export async function runTestPlan(
 
     // Always end with the single next command, so the flow is self-guiding.
     process.stderr.write("\n  Next:\n");
-    if (!result.generated) {
+    if (result.unreferencedScreens.length > 0) {
+      process.stderr.write(
+        `    /xforge:test-review ${planId}   # settle the dead-code question first\n`,
+      );
+    } else if (!result.generated) {
       process.stderr.write(`    xforge test generate ${planId}\n`);
     } else if (!result.approved) {
       process.stderr.write(`    xforge test approve ${planId}\n`);

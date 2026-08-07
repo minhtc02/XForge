@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Confidence, RunLevel, Severity, TestabilityMode } from "./enums.js";
+import { AppliedReview } from "./review.js";
 import { StateBucket, TestCase } from "./test-case.js";
 
 /**
@@ -47,6 +48,11 @@ export const TestabilityIssue = z.object({
   affected_cases: z.array(z.string()).default([]),
   /** Suggested test-support remediation (§13.1 test-support mode). */
   remediation: z.string().optional(),
+  /**
+   * Subjects the issue is about — screen types, locators, permissions. Lets a
+   * caller act on the issue without parsing its prose.
+   */
+  subjects: z.array(z.string()).default([]),
   /** True if this blocks automation entirely under read-only mode. */
   blocks_automation: z.boolean().default(false),
 });
@@ -115,6 +121,15 @@ export const TestPlan = z.object({
   estimated_duration: EstimatedDuration,
   stats: PlanStats,
   inputs: PlanInputs,
+  /**
+   * Reviews applied to this plan, newest last (see `models/review.ts`).
+   *
+   * A plan carries its own revision history so a reader can tell which cases
+   * the deterministic planner produced and which a reviewer changed, with the
+   * evidence that justified each change. Part of the hash by design: applying a
+   * review invalidates a prior approval, exactly as editing the plan would.
+   */
+  applied_reviews: z.array(AppliedReview).default([]),
   /** Sources discovered while planning (for the plan.md summary, §5.2). */
   sources: z
     .object({

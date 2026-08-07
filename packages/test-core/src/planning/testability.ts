@@ -35,12 +35,107 @@ function nextId(kind: string): string {
   return `TI-${kind.toUpperCase().replace(/[^A-Z0-9]+/g, "-")}-${String(counter).padStart(3, "0")}`;
 }
 
+/**
+ * An issue as constructed here, before schema defaults are applied. `subjects`
+ * is optional at this stage so the ten issues that have nothing structured to
+ * report do not each have to write `subjects: []`.
+ */
+type DraftIssue = Omit<TestabilityIssue, "subjects"> &
+  Partial<Pick<TestabilityIssue, "subjects">>;
+
+/**
+ * Cases whose navigation anchor comes from a screen nothing else refers to.
+ *
+ * The precise harm is not "this feature contains an orphan" — a live feature
+ * can hold an unused subview harmlessly. It is that the *anchor the plan
+ * navigates to* was taken from a screen no code path presents, so every case
+ * using it drives at something the user cannot reach.
+ *
+ * That happens easily: the anchor is the first accessibility identifier found
+ * in a feature's source, and source order has nothing to do with which screen
+ * ships. An abandoned `DiscoveryScreen` sitting alphabetically before the live
+ * `DiscoveryHomeScreen` captures the whole feature's test plan.
+ *
+ * So the check is: which files declare orphaned screens, and does any case's
+ * anchor resolve to an identifier declared in one of them.
+ */
+function orphanedScreenCases(input: TestabilityInput): {
+  issues: DraftIssue[];
+} {
+  const reachability = input.model.screen_reachability ?? [];
+  const cases = input.cases ?? [];
+  if (reachability.length === 0 || cases.length === 0) return { issues: [] };
+
+  // Files that contain at least one orphaned screen and no live one. A file
+  // holding both is not evidence of anything: the identifier may belong to the
+  // live type.
+  const orphanFiles = new Set<string>();
+  const liveFiles = new Set<string>();
+  for (const screen of reachability) {
+    (screen.orphaned ? orphanFiles : liveFiles).add(screen.file);
+  }
+  for (const file of liveFiles) orphanFiles.delete(file);
+  if (orphanFiles.size === 0) return { issues: [] };
+
+  // Anchor identifiers declared in one of those files.
+  const suspectAnchors = new Map<string, string>(); // identifier -> file
+  for (const id of input.model.accessibility_identifiers) {
+    if (id.dynamic || !id.value) continue;
+    if (orphanFiles.has(id.file)) suspectAnchors.set(id.value, id.file);
+  }
+  if (suspectAnchors.size === 0) return { issues: [] };
+
+  // Cases that navigate to one of them, grouped by the anchor they use.
+  const byAnchor = new Map<string, string[]>();
+  for (const testCase of cases) {
+    const anchors = [
+      ...testCase.steps.map((s) => s.target),
+      ...testCase.assertions.map((a) => a.target),
+    ].filter((t): t is string => Boolean(t));
+    for (const anchor of new Set(anchors)) {
+      if (!suspectAnchors.has(anchor)) continue;
+      byAnchor.set(anchor, [...(byAnchor.get(anchor) ?? []), testCase.id]);
+    }
+  }
+  if (byAnchor.size === 0) return { issues: [] };
+
+  const issues: DraftIssue[] = [];
+  for (const [anchor, caseIds] of byAnchor) {
+    const file = suspectAnchors.get(anchor)!;
+    const screens = reachability
+      .filter((r) => r.file === file && r.orphaned)
+      .map((r) => r.type)
+      .sort();
+    issues.push({
+      id: nextId("orphaned-screen"),
+      kind: "screen-not-referenced",
+      description:
+        `${caseIds.length} case(s) navigate to "${anchor}", which is declared in ${file} — ` +
+        `a file whose screen${screens.length === 1 ? "" : "s"} (${screens.join(", ")}) nothing ` +
+        "outside that file refers to. If it is dead code, those cases test something the user " +
+        "cannot reach and would pass while the shipped screen went untested. The check is lexical " +
+        "and cannot see reflection, storyboard instantiation or string-keyed registration, so this " +
+        "is a question to settle, not a verdict.",
+      severity: "critical",
+      affected_cases: [...new Set(caseIds)].sort(),
+      subjects: screens,
+      remediation:
+        `Search for ${screens.join(" / ")}. If the only match is the declaration, retarget these ` +
+        "cases to the screen the app actually presents (or drop them); if it is reached in a way " +
+        "this cannot see, add that entry point to .xforge/test/navigation.yaml. " +
+        "`/xforge:test-review <plan-id>` does the investigation and writes the answer back.",
+      blocks_automation: false,
+    });
+  }
+  return { issues };
+}
+
 /** Analyze testability, returning issues ordered by severity. */
 export function analyzeTestability(
   input: TestabilityInput,
 ): TestabilityIssue[] {
   counter = 0;
-  const issues: TestabilityIssue[] = [];
+  const issues: DraftIssue[] = [];
   const readOnly = input.mode === "read-only";
 
   if (!input.hasUiTestTarget) {
@@ -174,6 +269,18 @@ export function analyzeTestability(
     });
   }
 
+  // A screen nothing else in the app refers to may be unreachable *for the
+  // user*, however confidently the graph says otherwise: the derived graph is
+  // built from declarations, so an abandoned screen and a live one look
+  // identical to it. Testing dead code is worse than testing nothing — it
+  // produces a green plan that proves the shipped app works.
+  //
+  // The static check cannot see reflection or storyboard instantiation, so this
+  // never blocks by itself. It marks the cases so an agent (or a human) resolves
+  // the question with a real grep before the plan is trusted.
+  const orphanCases = orphanedScreenCases(input);
+  if (orphanCases.issues.length > 0) issues.push(...orphanCases.issues);
+
   // A case that asserts nothing cannot fail on behaviour — the "exit-0 trap".
   const unverifiable = (input.cases ?? []).filter(
     (c) => c.expected_results.length > 0 && c.assertions.length === 0,
@@ -208,5 +315,7 @@ export function analyzeTestability(
   }
 
   const order = { blocker: 0, critical: 1, major: 2, minor: 3, info: 4 };
-  return issues.sort((a, b) => order[a.severity] - order[b.severity]);
+  return issues
+    .sort((a, b) => order[a.severity] - order[b.severity])
+    .map((issue) => ({ ...issue, subjects: issue.subjects ?? [] }));
 }
