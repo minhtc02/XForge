@@ -99,14 +99,89 @@ xforge --help
 
 ## Các command chính
 
-| Command                   | Mô tả                                                                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `xforge init`             | Detect loại dự án; tạo `.xforge/config.yaml`, thư mục state và thư mục output.                                                      |
-| `xforge doctor`           | Kiểm tra môi trường và tính hợp lệ của config.                                                                                      |
-| `xforge docs`             | Tạo, lưu Canonical Project Model và tài liệu index. Nếu chưa có PRD, CLI sẽ tự hỏi có muốn gọi BMAD/Spec Kit để sinh tự động không. |
-| `xforge docs sync`        | Sinh lại tài liệu cho các file đã thay đổi theo cơ chế incremental.                                                                 |
-| `xforge docs check`       | Phát hiện documentation drift; trả exit code `1` nếu có drift.                                                                      |
-| `xforge inspect <target>` | In ra một phần cụ thể của Project Model.                                                                                            |
+| Command                   | Mô tả                                                                                                            |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `xforge init`             | Detect loại dự án; tạo `.xforge/config.yaml`, thư mục state, `docs/project/` (nguồn) và `docs/xforge/` (output). |
+| `xforge doctor`           | Kiểm tra môi trường và tính hợp lệ của config.                                                                   |
+| `xforge docs`             | Tạo, lưu Canonical Project Model và cây tài liệu. Hỏi xác nhận nguồn tài liệu trước khi sinh.                    |
+| `xforge docs sync`        | Sinh lại tài liệu cho các file đã thay đổi theo cơ chế incremental.                                              |
+| `xforge docs check`       | Phát hiện documentation drift; trả exit code `1` nếu có drift.                                                   |
+| `xforge upgrade`          | Nâng dự án đã init bằng bản XForge cũ lên bản hiện tại; chỉ thêm, không bao giờ ghi đè.                          |
+| `xforge inspect <target>` | In ra một phần cụ thể của Project Model.                                                                         |
+
+Nhóm `xforge test <sub>` và `xforge dev <sub>` được mô tả ở mục
+[XForge Test](#xforge-test--qa-tự-động-cho-ios) và
+[XForge Dev](#xforge-dev--phát-triển-theo-spec).
+
+## Tích hợp XForge vào một dự án iOS có sẵn
+
+Các mục bên dưới mô tả từng phần; đây là toàn bộ đường đi, theo thứ tự. Mỗi
+bước đều báo lỗi rõ ràng nếu bước trước chưa xong, nên không thể vô tình bỏ qua.
+
+```bash
+cd /path/to/your-ios-app
+
+# 0. Đặt PRD/spec của bạn vào docs/project/ (hoặc trỏ sources.project_docs tới
+#    nơi bạn đang để tài liệu). Nếu docs/project/ đã có sẵn thì được dùng luôn.
+
+xforge init          # detect dự án Xcode; ghi config + cả hai cây tài liệu
+xforge docs          # biên dịch Canonical Project Model — bắt buộc trước khi QA
+xforge test doctor   # kiểm tra môi trường; phải xanh hết mới lập plan được
+xforge test plan --level smoke
+xforge test run <plan-id>             # dry run: chỉ ghi lại lệnh, không gọi Xcode
+xforge test run <plan-id> --execute   # chạy thật
+```
+
+Có hai thứ cần kiểm tra trong output của `init` trước khi đi tiếp. Nếu
+**scheme** hoặc **UI test target** vẫn còn là `auto` thì `--execute` sẽ fail —
+nguyên nhân thường gặp là scheme chưa được shared (trong Xcode: Product → Scheme
+→ Manage Schemes → tick "Shared"). Và `xforge docs` không phải bước tùy chọn
+trước khi QA: test plan được suy ra từ feature và requirement trong Project Model.
+
+Muốn chạy qua Claude Code? Xem mục [Claude Code plugin](#claude-code-plugin) —
+cùng trình tự, cộng thêm `/xforge:test-design` vốn với tới được Figma trong khi
+CLI thì không.
+
+## Hai cây tài liệu
+
+`xforge init` tạo cả hai, và việc tách bạch chúng chính là điểm mấu chốt:
+
+| Thư mục         | Chủ sở hữu | Vai trò                                                                             |
+| --------------- | ---------- | ----------------------------------------------------------------------------------- |
+| `docs/project/` | **bạn**    | PRD, spec, tài liệu thiết kế của bạn. XForge chỉ đọc, không bao giờ ghi vào đây.    |
+| `docs/xforge/`  | XForge     | Tài liệu được sinh ra. Mỗi lần chạy đều ghi đè; chỉ sửa tay bên trong manual block. |
+
+Nếu `docs/project/` đã tồn tại sẵn, XForge dùng luôn và không đụng vào nội dung
+bên trong — dự án đang để spec ở đó không cần migrate gì cả.
+
+Hai cây này bắt buộc phải tách nhau. Nếu XForge ghi vào chính thư mục nó đọc làm
+nguồn sự thật, lần chạy sau sẽ đọc văn bản do chính nó sinh ra thành requirement
+rồi báo cáo là đã đáp ứng 100% — một mô hình tự đồng ý với chính mình.
+`xforge doctor` sẽ báo fail nếu hai cây chồng lên nhau.
+
+`xforge docs` mặc định lấy **tài liệu dự án của bạn** làm nguồn: một yêu cầu viết
+trong `docs/project/` là _ý định_, và phần code được đối chiếu với nó. Source code
+vẫn được quét để làm bằng chứng cho mọi khẳng định. Vì lựa chọn này thay đổi kết
+quả đáng kể, `docs` luôn hỏi xác nhận trước khi sinh:
+
+```
+Which source should this documentation be built from?
+
+  ›  1. Project documents  — docs/project/**/*.md lead; code supplies evidence
+     2. Source code  — the repository leads; project documents are secondary
+```
+
+Bỏ qua câu hỏi bằng flag — đây là cách CI và agent nên dùng:
+
+```bash
+xforge docs --from-docs    # tài liệu dự án dẫn dắt (mặc định)
+xforge docs --from-code    # repo dẫn dắt; dùng khi tài liệu đã lệch so với code
+xforge docs --yes          # chấp nhận giá trị đã cấu hình, không hỏi
+```
+
+Câu hỏi chỉ xuất hiện trên terminal thật. Khi chạy với `--json`, qua pipe, hoặc
+trong CI thì giá trị `generation.docs_source` trong config được áp dụng im lặng.
+Sửa giá trị đó trong `.xforge/config.yaml` để đổi mặc định vĩnh viễn.
 
 Tất cả command đều hỗ trợ:
 
@@ -139,20 +214,22 @@ Exit codes:
 
 ## Claude Code plugin
 
-Các command hiện có:
+XForge có thể dùng hoàn toàn từ Claude Code — và đây là cách được thiết kế để
+dùng, bởi phần việc semantic (văn xuôi, phán đoán requirement, Figma) vốn thuộc
+về LLM, còn plugin là thứ nối hai nửa đó lại.
 
 ```text
-/xforge:init
-/xforge:docs
-/xforge:sync
-/xforge:doctor
-/xforge:inspect
+/xforge:init          /xforge:docs         /xforge:sync
+/xforge:doctor        /xforge:inspect
+/xforge:test-doctor   /xforge:test-plan    /xforge:test-review
+/xforge:test-design   /xforge:test-run     /xforge:test-status
+/xforge:test-report
+/xforge:dev-doctor    /xforge:dev-plan     /xforge:dev-run       (+12 command dev khác)
 ```
 
-Plugin nằm trong `plugins/claude/`.
-
-Các command của plugin gọi `xforge` CLI cho mọi tác vụ deterministic và sử dụng
-các sub-agent sau cho semantic analysis:
+Plugin nằm trong `plugins/claude/`: 29 command, 22 agent và 5 skill. Các command
+của plugin gọi `xforge` CLI cho mọi tác vụ deterministic và dùng sub-agent cho
+semantic analysis:
 
 ```text
 codebase-analyst
@@ -161,20 +238,52 @@ doc-writer
 doc-reviewer
 ```
 
+cộng với 8 agent QA và 9 agent dev.
+
 ### Cài đặt Plugin
 
-Khi đang phát triển (chưa publish), khởi chạy Claude Code với cờ `--plugin-dir` để cài cục bộ:
-
-```bash
-claude --plugin-dir /path/to/xforge/plugins/claude
-```
-
-Nếu cài qua GitHub Marketplace (khi đã publish repo), sử dụng cờ `--sparse` vì plugin nằm trong cấu trúc monorepo:
+XForge là monorepo nên khi cài từ GitHub phải dùng cờ `--sparse`:
 
 ```bash
 claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins/claude
 /plugin install xforge
 ```
+
+Khi đang phát triển cục bộ (chưa publish):
+
+```bash
+cd /path/to/your-ios-app
+claude --plugin-dir /path/to/xforge/plugins/claude
+```
+
+Bạn **không cần** cài `xforge` global: `plugins/claude/bin/xforge` ưu tiên
+`xforge` trên PATH, không có thì fallback về bản build trong monorepo — chỉ cần
+chạy `pnpm build` một lần.
+
+### Chạy một dự án từ Claude Code
+
+Mở Claude Code **tại thư mục dự án iOS của bạn**, sau khi đã đặt PRD và spec vào
+`docs/project/`:
+
+```text
+/xforge:init          # detect dự án, tạo cả hai cây tài liệu
+/xforge:docs          # biên dịch Canonical Project Model — bắt buộc trước khi QA
+/xforge:test-doctor   # kiểm tra môi trường
+/xforge:test-plan alarm
+/xforge:test-review XFPLAN-…    # khi plan báo có màn hình không ai tham chiếu
+/xforge:test-design XFPLAN-…    # tùy chọn: điền tham chiếu Figma qua MCP
+/xforge:test-run XFPLAN-…
+```
+
+Khi chạy qua Claude Code, `/xforge:docs` truyền `--yes` nên **không hiện câu hỏi
+chọn nguồn** — nó áp dụng giá trị `generation.docs_source` trong config. Muốn
+dùng nguồn còn lại thì nói rõ ("sinh tài liệu từ source code"), agent sẽ thêm
+`--from-code`.
+
+**`/xforge:test-design` chỉ hoạt động qua plugin.** CLI là một Node process
+thuần, không với tới được Figma MCP server, nhưng Claude thì có: agent fetch
+từng node rồi ghi ra file snapshot, CLI đọc file đó sau. Nhờ vậy credential
+không đi qua CLI và việc so sánh vẫn tái lập được từ file.
 
 ## XForge Test — QA tự động cho iOS
 
@@ -189,8 +298,8 @@ Xcode chỉ được gọi khi thêm `--execute` trên máy macOS có app hỗ t
 
 ```bash
 xforge test doctor
-xforge test plan --feature alarm --level full
-xforge test approve XFPLAN-20260729-001
+xforge test plan --feature alarm --level smoke
+xforge test review XFPLAN-20260729-001      # giải quyết câu hỏi dead code
 xforge test run XFPLAN-20260729-001
 xforge test status
 xforge test report
@@ -200,7 +309,13 @@ xforge test clean [runs|cache]
 
 ### Cách hoạt động
 
-`xforge test plan` tạo một test plan deterministic có liên kết evidence, bao gồm:
+`xforge test plan` là **một pipeline, không phải một bước đơn lẻ**. Một lần gọi
+sẽ chạy preflight môi trường, scaffold `navigation.yaml` nếu dự án chưa có, dựng
+plan, sinh source XCUITest, chép chúng vào Xcode target và approve plan. Tắt
+từng bước bằng `--no-doctor`, `--no-navigation`, `--no-generate`, `--no-xcode`,
+`--no-approve`. Với dự án chưa từng test, nên bắt đầu bằng `--level smoke`.
+
+Bản thân plan là deterministic và có liên kết evidence, bao gồm:
 
 - QA Knowledge Model.
 - Risk score.
@@ -208,13 +323,74 @@ xforge test clean [runs|cache]
 - Simulator shard theo feature.
 - Permission manifest.
 
-Command này không chạy test.
+Bước lập plan không chạy test.
 
-`xforge test approve` gắn approval với hash chuẩn hóa của plan. Nếu plan bị sửa,
-cũ hoặc không còn khớp, XForge sẽ từ chối chạy.
+Approval được gắn với hash chuẩn hóa của plan. Nếu plan bị sửa hoặc đã cũ,
+XForge từ chối chạy — approval trở nên stale sau khi re-plan là hành vi đúng,
+không phải lỗi. `xforge test run` kiểm tra lại hash trước khi thực thi và không
+hỏi thêm gì sau khi approval hợp lệ.
 
-`xforge test run` kiểm tra lại hash trước khi thực thi và không hỏi thêm sau khi
-approval hợp lệ.
+### Những thứ âm thầm làm mất coverage
+
+Có ba output quan trọng hơn cả số lượng test case, vì mỗi thứ đều lấy đi test mà
+không làm fail gì cả:
+
+- **Accessibility identifier là điều kiện tiên quyết.** Test sinh ra định vị
+  element qua a11y id, không bao giờ tap theo tọa độ. `plan` đối chiếu tĩnh mọi
+  locator với source (offline) và báo `reconcile.missing` — id không có trong
+  source sẽ chặn case đó. Phải gắn identifier cho app trước.
+- **Feature không tới được sẽ sinh ra 0 case.** Feature mà không có đường điều
+  hướng đủ tin cậy sẽ được báo cáo, chứ không bị đoán bừa. File
+  `navigation.yaml` scaffold ra khởi tạo mọi cạnh ở mức `derived` (confidence
+  0.6), nên cần review và nâng những cạnh đã xác nhận lên `explicit`. Kiểm tra
+  bằng `xforge test navigation`.
+- **`testability-report.md` liệt kê thứ sẽ chen ngang lúc chạy.** `simctl` thực
+  sự không cấp trước được quyền camera và notification, nên các alert đó sẽ hiện
+  giữa run trừ khi xử lý bằng `addUIInterruptionMonitor` hoặc test-support hook.
+
+Khi `plan` báo `xcodeIntegration.method: none` tức là source chưa được wire vào
+project — cần thêm `XForgeUITests.swift` vào UI test target và
+`XForgeTestSupport.swift` vào app target, rồi gọi `XForgeTestSupport.configure()`
+lúc app khởi động. File `README.md` nằm cạnh source đã sinh có hướng dẫn chính
+xác. Chạy `--execute` trước khi làm việc này sẽ build ra một app không chứa test
+nào của XForge.
+
+### Dead code và vòng review
+
+Bộ lập plan suy luận từ khai báo, nên một màn hình đã bị bỏ và một màn hình đang
+sống trông giống hệt nhau với nó. Nếu để nguyên, nó sẽ sinh ra một plan rất tự
+tin nhắm vào màn hình không code path nào present — mọi case đều pass, còn màn
+hình thật sự đang ship thì không được test lần nào.
+
+XForge giờ đối chiếu chéo mọi screen type với phần source còn lại. Nếu plan điều
+hướng tới một anchor được khai báo trong file mà các screen của nó không ai tham
+chiếu, `plan` sẽ **không tự approve** và nói rõ:
+
+```
+NOT approved — nothing in the app refers to: CategoryDetailScreen.
+```
+
+Câu hỏi đó không thể trả lời bằng phân tích tĩnh — phép kiểm tra thuần từ vựng,
+không thấy được reflection, storyboard instantiation hay registration theo string
+key. Nó cần người đọc được call site, và đó là việc của `xforge test review`:
+
+```bash
+xforge test review <plan-id>            # template + các câu hỏi còn bỏ ngỏ
+# điều tra, điền verdict
+xforge test review <plan-id> --apply    # merge vào plan một cách deterministic
+```
+
+Trong Claude Code, `/xforge:test-review <plan-id>` tự làm phần điều tra: grep
+từng type, tìm ra màn hình app thực sự present, rồi ghi verdict ngược lại. Mỗi
+verdict là `keep`, `drop`, `retarget` hoặc `revise`; bất cứ thứ gì khác `keep`
+đều **bắt buộc có rationale và ít nhất một evidence** — schema từ chối một thay
+đổi không ai giải thích được. CLI thực hiện việc merge nên agent không bao giờ
+tự ghi `plan.json`: suite, shard và stats luôn nhất quán, mọi verdict được lưu
+trong plan cho người đọc sau, và việc re-hash làm mọi approval cũ mất hiệu lực.
+
+Một review làm rỗng toàn bộ case sẽ bị từ chối. Đó là thất bại của khâu lập plan
+chứ không phải một review: hãy sửa đầu vào rồi plan lại, thay vì approve một plan
+rỗng luôn pass.
 
 Quy trình run:
 
@@ -288,6 +464,8 @@ và fixture để việc lập kế hoạch có thể chạy offline.
 ```text
 /xforge:test-doctor
 /xforge:test-plan
+/xforge:test-review
+/xforge:test-design
 /xforge:test-run
 /xforge:test-status
 /xforge:test-report

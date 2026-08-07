@@ -4,6 +4,113 @@ All notable changes to XForge are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added — the planner can now be told it is wrong
+
+XForge's test planner reasons from declarations: it sees a screen type and
+assumes a user can reach it. An abandoned screen and a live one are identical
+from that vantage point, so the planner would generate a confident, internally
+consistent plan against code no path presents — every case green, the screen
+that actually ships untested. Template cases made it worse: a "create an item,
+relaunch, check it persisted" case would be emitted for a screen with nothing to
+create.
+
+No amount of better static analysis fixes this. It needs someone who can grep
+the repository, read the call sites and judge intent — and since XForge runs
+inside Claude Code, that someone is available. What was missing was a way for
+their conclusions to reach the plan instead of a side document nobody executes.
+
+- **Screen reachability in the Project Model.** The Swift parser now collects
+  type _references_, not just declarations, and `screen_reachability` records
+  which screens nothing else mentions. String literals are excluded, so a type
+  name inside a log line never makes dead code look reachable; test files are
+  excluded too, because a screen only its own test refers to is still
+  unreachable in the app.
+- **`plan` withholds approval when a case targets an unreferenced screen.** The
+  one-command pipeline still runs end to end, but auto-approval stops — a green
+  run against dead code is evidence of nothing, and this is exactly the pause
+  worth keeping.
+- **`xforge test review <plan-id>` / `--apply`, and `/xforge:test-review`.** The
+  LLM write-back path. The CLI writes a template plus the specific questions the
+  deterministic layer knows it cannot answer; a reviewer (or the Claude command,
+  which does the investigation itself) fills in `keep` / `drop` / `retarget` /
+  `revise` verdicts; `--apply` merges them into the plan.
+
+  What makes it safe to hand to an agent: any verdict other than `keep` requires
+  a rationale and at least one evidence reference, enforced by the schema — an
+  agent that cannot say why cannot change the plan. The CLI performs the merge,
+  so nothing writes `plan.json` directly and suites, shards and stats stay
+  consistent. Every verdict is recorded in the plan itself, so a later reader
+  can see which cases were machine-generated and which were overruled, on what
+  grounds. Applying a review re-hashes the plan, so a prior approval goes stale
+  through the existing mechanism rather than a new one.
+
+  Two refusals: a review written against a different plan hash (its case ids no
+  longer mean the same thing), and one that would leave the plan with no cases
+  at all — that is a planning failure, and the honest response is to fix the
+  inputs and re-plan, not to approve an empty plan that passes.
+
+- Reviewer-added cases inherit risk score, priority and requirement links from
+  their feature rather than asserting their own, so the write-back path cannot
+  become a route to inventing requirements.
+- `TestabilityIssue` gained `subjects`, so a caller can act on an issue without
+  parsing its prose.
+
+## [Unreleased — documentation trees]
+
+### Changed — documentation input and output are now separate trees
+
+`xforge init` creates two directories instead of one:
+
+- `docs/project/` — **yours**. PRD, specs, design notes. XForge only reads it.
+  An existing directory is adopted untouched, so a project already keeping its
+  specs there needs no migration.
+- `docs/xforge/` — **XForge's**. The generated tree, previously `docs/project/`.
+
+They have to be distinct. When XForge writes into the directory it also reads as
+truth, the next run parses its own generated prose into requirements and reports
+perfect coverage of them — a model that agrees with itself and has learned
+nothing. `xforge doctor` now fails on an overlapping pair and `xforge upgrade`
+reports it with the fix, because moving generated files is safe but deciding
+where a project keeps its documentation is not the tool's call.
+
+**Upgrading:** run `xforge upgrade`. It flags an `output.root` still pointing at
+`docs/project`; change it to `docs/xforge` and re-run `xforge docs`. Your own
+documents stay where they are. Nothing is deleted — the old generated files
+remain under `docs/project/` until you remove them.
+
+### Added
+
+- **`xforge docs` leads with the project's own documents.** A requirement stated
+  in `docs/project/` is intent, and the implementation is measured against it;
+  source code still supplies the evidence behind every claim. Previously the
+  repository was the only real source and documents were consulted just to decide
+  what counted as "documented".
+- **`--from-code` / `--from-docs`, and a confirmation prompt.** The two sources
+  produce genuinely different documentation, and the configured default is only a
+  guess about a given run, so `docs` asks before generating. The prompt appears
+  only at a real terminal: under `--json`, a pipe, or in CI the configured
+  `generation.docs_source` applies silently, and `--yes` accepts it explicitly.
+  Passing both flags is an error rather than a silent precedence rule.
+  A `code` run records the choice as an assumption, so a reader of the output can
+  tell that it describes what the app does rather than what was specified.
+- **`generation.docs_source`** (`project-docs` | `code`) and
+  **`sources.project_docs`** in `.xforge/config.yaml`.
+- A `project-docs` run that finds no documents warns and says what the output
+  actually is, rather than quietly producing a code-derived tree under a label
+  that claims otherwise.
+
+### Fixed
+
+- A prompt no longer aborts the run when stdin closes. Ctrl+D used to crash
+  `docs` with `Unexpected error: Aborted with Ctrl+D`, and a closed pipe left it
+  hanging forever — readline signals the two cases differently. Both now resolve
+  to the default, which the caller already had. This also covers `test plan`'s
+  feature-selection prompt.
+- `xforge dev plan` reads spec facts from `sources.project_docs` instead of
+  sweeping `docs/**`, which would now pull XForge's own output into the spec.
+
 ## [0.2.0]
 
 ### Upgrading an existing project

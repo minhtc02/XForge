@@ -84,14 +84,19 @@ xforge --help
 
 ## Commands
 
-| Command                   | Description                                                                                                                                     |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `xforge init`             | Detect project type; write `.xforge/config.yaml`, state dirs and output dir.                                                                    |
-| `xforge doctor`           | Environment + config health checks.                                                                                                             |
-| `xforge docs`             | Build & persist the Canonical Project Model and index doc. If no PRD is found, it interactively asks to spawn BMAD or Spec Kit to generate one. |
-| `xforge docs sync`        | Regenerate for changed files (incremental).                                                                                                     |
-| `xforge docs check`       | Detect documentation drift (exit 1 if drift).                                                                                                   |
-| `xforge inspect <target>` | Print a slice of the Project Model.                                                                                                             |
+| Command                   | Description                                                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `xforge init`             | Detect project type; write `.xforge/config.yaml`, state dirs, `docs/project/` (input) and `docs/xforge/` (output). |
+| `xforge doctor`           | Environment + config health checks.                                                                                |
+| `xforge docs`             | Build & persist the Canonical Project Model and the documentation tree. Confirms which source to build from.       |
+| `xforge docs sync`        | Regenerate for changed files (incremental).                                                                        |
+| `xforge docs check`       | Detect documentation drift (exit 1 if drift).                                                                      |
+| `xforge upgrade`          | Bring a project initialized by an older XForge up to date; only ever adds.                                         |
+| `xforge inspect <target>` | Print a slice of the Project Model.                                                                                |
+
+`xforge test <sub>` and `xforge dev <sub>` are documented under
+[XForge Test](#xforge-test-autonomous-ios-qa) and
+[XForge Dev](#xforge-dev-spec-first-development).
 
 All commands support `--json` for machine-readable output and `--cwd <dir>` to
 target another directory. Global flags: `--verbose`, `--quiet`.
@@ -99,34 +104,137 @@ target another directory. Global flags: `--verbose`, `--quiet`.
 Exit codes: `0` success · `1` operational failure (drift / validation) · `2`
 configuration or runtime error.
 
+## Adding XForge to an existing iOS project
+
+The sections below cover each piece; this is the whole path, in order. Every
+step fails loudly if the previous one is missing, so there is no way to skip
+ahead by accident.
+
+```bash
+cd /path/to/your-ios-app
+
+# 0. Put your PRD/specs in docs/project/ (or point sources.project_docs at
+#    wherever you already keep them). An existing docs/project/ is used as-is.
+
+xforge init          # detect Xcode project; write config + both docs trees
+xforge docs          # compile the Canonical Project Model — required before QA
+xforge test doctor   # environment check; must be green before planning
+xforge test plan --level smoke
+xforge test run <plan-id>             # dry run: records the commands, no Xcode
+xforge test run <plan-id> --execute   # for real
+```
+
+Two things to check in `init`'s output before moving on. If **scheme** or **UI
+test target** is still `auto`, `--execute` will fail later — the usual cause is
+a scheme that is not shared (in Xcode: Product → Scheme → Manage Schemes → tick
+"Shared"). And `xforge docs` is not optional before QA: the test plan is derived
+from the features and requirements in the Project Model.
+
+Prefer to drive this from Claude Code? See
+[Claude Code plugin](#claude-code-plugin) — same sequence, plus
+`/xforge:test-design`, which can reach Figma where the CLI cannot.
+
+## Two documentation trees
+
+`xforge init` creates both, and the distinction is the point:
+
+| Directory       | Owner   | Role                                                                               |
+| --------------- | ------- | ---------------------------------------------------------------------------------- |
+| `docs/project/` | **you** | Your PRD, specs and design notes. XForge only reads this — never writes it.        |
+| `docs/xforge/`  | XForge  | Generated documentation. Regenerated on every run; edit only inside manual blocks. |
+
+An existing `docs/project/` is adopted as-is, so a project that already keeps
+its specs there needs no migration.
+
+`xforge docs` leads with **your documents** by default: a requirement stated in
+`docs/project/` is intent, and the implementation is measured against it. Code
+is still scanned for evidence behind every claim. Because that choice changes
+the output substantially, `docs` confirms it before generating:
+
+```
+Which source should this documentation be built from?
+
+  ›  1. Project documents  — docs/project/**/*.md lead; code supplies evidence
+     2. Source code  — the repository leads; project documents are secondary
+```
+
+Skip the question with a flag, which is what CI and agents should do:
+
+```bash
+xforge docs --from-docs    # documents lead (the default)
+xforge docs --from-code    # the repository leads; use when docs have drifted
+xforge docs --yes          # accept the configured default without asking
+```
+
+The prompt only appears at a real terminal — under `--json`, a pipe, or in CI
+the configured `generation.docs_source` applies silently. Set that in
+`.xforge/config.yaml` to change the default permanently.
+
 ## Claude Code plugin
 
+XForge is usable entirely from Claude Code — that is the intended way to drive
+it, because the semantic half of the work (prose, requirement judgement, Figma)
+is the LLM's, and the plugin wires the two halves together.
+
 ```
-/xforge:init
-/xforge:docs
-/xforge:sync
-/xforge:doctor
-/xforge:inspect
+/xforge:init          /xforge:docs         /xforge:sync
+/xforge:doctor        /xforge:inspect
+/xforge:test-doctor   /xforge:test-plan    /xforge:test-review
+/xforge:test-design   /xforge:test-run     /xforge:test-status
+/xforge:test-report
+/xforge:dev-doctor    /xforge:dev-plan     /xforge:dev-run       (+12 more dev commands)
 ```
 
-The plugin lives in `plugins/claude/`. Its commands invoke the `xforge` CLI for
-all deterministic work and use sub-agents (`codebase-analyst`,
-`product-analyst`, `doc-writer`, `doc-reviewer`) for semantic analysis.
+The plugin lives in `plugins/claude/`: 29 commands, 22 agents and 5 skills. Its
+commands invoke the `xforge` CLI for all deterministic work and use sub-agents
+(`codebase-analyst`, `product-analyst`, `doc-writer`, `doc-reviewer`, plus 8 QA
+and 9 dev agents) for semantic analysis.
 
 ### Installation
 
-For local development without publishing to a marketplace, launch Claude Code with the `--plugin-dir` flag:
-
-```bash
-claude --plugin-dir /path/to/xforge/plugins/claude
-```
-
-If adding via GitHub Marketplace, use the `--sparse` flag since the plugin is part of a monorepo:
+XForge is a monorepo, so installing from GitHub needs `--sparse`:
 
 ```bash
 claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins/claude
 /plugin install xforge
 ```
+
+For local development without publishing to a marketplace:
+
+```bash
+cd /path/to/your-ios-app
+claude --plugin-dir /path/to/xforge/plugins/claude
+```
+
+You do not need a global `xforge` install: `plugins/claude/bin/xforge` prefers
+an `xforge` on PATH and otherwise falls back to the monorepo build, so a single
+`pnpm build` is enough.
+
+### Driving a project from Claude Code
+
+Run Claude Code **from your iOS project's directory**, having put your PRD and
+specs in `docs/project/` first:
+
+```
+/xforge:init          # detect the project, create both docs trees
+/xforge:docs          # compile the Canonical Project Model — required before QA
+/xforge:test-doctor   # environment check
+/xforge:test-plan alarm
+/xforge:test-review XFPLAN-…    # when the plan reports unreferenced screens
+/xforge:test-design XFPLAN-…    # optional: fill Figma references via MCP
+/xforge:test-run XFPLAN-…
+```
+
+Under Claude Code, `/xforge:docs` passes `--yes`, so it does not show the source
+prompt — it applies the configured `generation.docs_source`. Ask for the other
+source explicitly ("build the docs from source code") and the agent adds
+`--from-code`.
+
+**`/xforge:test-design` only works from the plugin.** The CLI is a plain Node
+process and cannot reach the Figma MCP server, but Claude can: the agent fetches
+each node and writes the snapshot file, and the CLI reads it later. Credentials
+stay out of the CLI and the comparison stays reproducible from a file — see
+[Design conformance](#xforge-test-autonomous-ios-qa) below.
 
 ## XForge Test (Autonomous iOS QA)
 
@@ -138,8 +246,8 @@ app.
 
 ```bash
 xforge test doctor                          # environment + config health
-xforge test plan --feature alarm --level full
-xforge test approve XFPLAN-20260729-001     # one-time, immutable, hash-bound
+xforge test plan --feature alarm --level smoke
+xforge test review XFPLAN-20260729-001      # settle dead-code questions, fix the plan
 xforge test run XFPLAN-20260729-001         # dry run (add --execute for real)
 xforge test status   # --latest by default
 xforge test report
@@ -147,16 +255,85 @@ xforge test bugs
 xforge test clean [runs|cache]
 ```
 
-`plan` builds a deterministic, evidence-linked test plan (QA Knowledge Model,
-risk scores, testability issues, feature-based Simulator shards, permission
-manifest) — it never runs tests. `approve` binds approval to a canonical plan
-hash so a stale/mutated plan is refused (`run` re-checks it and never prompts
-after a valid approval, blueprint §19.3). `run` orchestrates build-once →
-per-feature shards → continue-on-failure, then triages results into
-**deduplicated, requirement-linked bug reports** (infrastructure/environment
-failures are never reported as product bugs, §4.4) and writes
+`plan` is a **pipeline, not a single step**: it runs the environment preflight,
+scaffolds `navigation.yaml` if the project has none, builds the plan, generates
+the XCUITest sources, copies them into the Xcode targets and approves the plan.
+Turn off any step with `--no-doctor`, `--no-navigation`, `--no-generate`,
+`--no-xcode`, `--no-approve`. Start with `--level smoke` on a project that has
+never been tested.
+
+The plan itself is deterministic and evidence-linked (QA Knowledge Model, risk
+scores, testability issues, feature-based Simulator shards, permission
+manifest); it never runs tests. Approval binds to a canonical plan hash, so a
+stale or mutated plan is refused — an approval going stale after a re-plan is
+correct behaviour, not a bug. `run` re-checks it and never prompts afterwards
+(§19.3), orchestrates build-once → per-feature shards → continue-on-failure,
+then triages results into **deduplicated, requirement-linked bug reports**
+(infrastructure failures are never reported as product bugs, §4.4) and writes
 `qa-runs/<run-id>/` (`summary.md/json`, `test-results.json`, `bugs.json`,
 `coverage.md`).
+
+### What silently costs coverage
+
+Three outputs matter more than the case count, because each one removes tests
+without failing anything:
+
+- **Accessibility identifiers are a prerequisite.** Generated tests locate
+  elements by a11y id and never tap by coordinate. `plan` reconciles every
+  locator against source offline and reports `reconcile.missing` — an identifier
+  that is nowhere in source blocks its case. Add identifiers to the app first.
+- **Unreachable features generate zero cases.** A feature no confident
+  navigation path reaches is reported, never guessed at. The scaffolded
+  `navigation.yaml` starts every edge at `derived` (0.6 confidence), so review it
+  and raise confirmed edges to `explicit`. Check with `xforge test navigation`.
+- **`testability-report.md` lists what will interrupt a run.** `simctl` genuinely
+  cannot pre-grant camera or notification permissions, so those alerts appear
+  mid-run unless handled with `addUIInterruptionMonitor` or a test-support hook.
+
+### Dead code, and the review loop
+
+The planner reasons from declarations, so an abandoned screen and a live one
+look identical to it. Left alone it will generate a confident plan against a
+screen no code path presents — every case passes, and the screen that actually
+ships goes untested.
+
+XForge now cross-references every screen type against the rest of the source. If
+a plan navigates to an anchor declared in a file whose screens nothing else
+refers to, `plan` **withholds approval** and says so:
+
+```
+NOT approved — nothing in the app refers to: CategoryDetailScreen.
+```
+
+That question cannot be settled statically — the check is lexical and cannot see
+reflection, storyboard instantiation or string-keyed registration. It needs
+someone who can grep the repository and read the call sites, which is what
+`xforge test review` is for:
+
+```bash
+xforge test review <plan-id>            # template + the open questions
+# investigate, fill in the verdicts
+xforge test review <plan-id> --apply    # merged into the plan deterministically
+```
+
+In Claude Code, `/xforge:test-review <plan-id>` does the investigation itself:
+it greps for each type, finds the screen the app really presents, and writes the
+verdicts back. Each verdict is `keep`, `drop`, `retarget` or `revise`, and
+anything other than `keep` **requires a rationale and at least one evidence
+reference** — the schema rejects a change nobody can justify. The CLI performs
+the merge, so an agent never writes `plan.json`; suites, shards and stats stay
+consistent, every verdict is recorded in the plan for later readers, and the
+re-hash invalidates any prior approval.
+
+A review that would drop every case is refused. That is a planning failure, not
+a review: fix the inputs and re-plan rather than approve an empty plan that
+passes.
+
+When `plan` reports `xcodeIntegration.method: none`, the sources were not wired
+in — add `XForgeUITests.swift` to the UI test target and `XForgeTestSupport.swift`
+to the app target, then call `XForgeTestSupport.configure()` at app start. The
+generated `README.md` beside the sources has the exact steps. Running
+`--execute` before this builds an app containing no XForge tests.
 
 `packages/test-core` holds the QA model, planning (risk/testability/hash/shard),
 XCUITest + XForgeTestSupport generation, xcresult parsing, failure
@@ -166,10 +343,10 @@ Test config: `.xforge/test/config.yaml` (§26); a file-backed Figma adapter
 (`design-map.yaml` + fixture) keeps planning offline.
 
 Claude commands: `/xforge:test-doctor`, `/xforge:test-plan`,
-`/xforge:test-run`, `/xforge:test-status`, `/xforge:test-report`, plus 8 QA
-agents (`qa-lead`, `environment-agent`, `test-case-author`,
-`feature-test-agent`, `visual/performance/accessibility-analysis-agent`,
-`bug-triage-agent`).
+`/xforge:test-review`, `/xforge:test-design`, `/xforge:test-run`, `/xforge:test-status`,
+`/xforge:test-report`, plus 8 QA agents (`qa-lead`, `environment-agent`,
+`test-case-author`, `feature-test-agent`,
+`visual/performance/accessibility-analysis-agent`, `bug-triage-agent`).
 
 ## XForge Dev (Spec-first development)
 
