@@ -190,25 +190,21 @@ commands invoke the `xforge` CLI for all deterministic work and use sub-agents
 (`codebase-analyst`, `product-analyst`, `doc-writer`, `doc-reviewer`, plus 8 QA
 and 9 dev agents) for semantic analysis.
 
-### Installation
+### Quick Setup & Installation
 
-XForge is a monorepo, so installing from GitHub needs `--sparse`:
-
-```bash
-claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins/claude
-/plugin install xforge
-```
-
-For local development without publishing to a marketplace:
+Run these two commands to build the CLI and install the Claude plugin:
 
 ```bash
-cd /path/to/your-ios-app
-claude --plugin-dir /path/to/xforge/plugins/claude
+# 1. Build the project locally (run once in the XForge directory)
+corepack prepare pnpm@9.15.0 --activate && pnpm i && pnpm build
+
+# 2. Add the marketplace to Claude (replace YourOrg/XForce with your repo URL)
+claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins/claude .claude-plugin
 ```
 
-You do not need a global `xforge` install: `plugins/claude/bin/xforge` prefers
-an `xforge` on PATH and otherwise falls back to the monorepo build, so a single
-`pnpm build` is enough.
+Then inside Claude, run: `/plugin install xforge`
+
+*(For local dev without GitHub, start Claude with: `claude --plugin-dir /path/to/xforge/plugins/claude`)*
 
 ### Driving a project from Claude Code
 

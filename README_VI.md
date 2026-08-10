@@ -240,25 +240,21 @@ doc-reviewer
 
 cộng với 8 agent QA và 9 agent dev.
 
-### Cài đặt Plugin
+### Cài đặt Plugin (Nhanh)
 
-XForge là monorepo nên khi cài từ GitHub phải dùng cờ `--sparse`:
-
-```bash
-claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins/claude
-/plugin install xforge
-```
-
-Khi đang phát triển cục bộ (chưa publish):
+Bạn chỉ cần chạy 2 lệnh sau để setup toàn bộ:
 
 ```bash
-cd /path/to/your-ios-app
-claude --plugin-dir /path/to/xforge/plugins/claude
+# 1. Build CLI cục bộ (chạy 1 lần ở thư mục XForge)
+corepack prepare pnpm@9.15.0 --activate && pnpm i && pnpm build
+
+# 2. Cài đặt plugin vào Claude
+claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins/claude .claude-plugin
 ```
 
-Bạn **không cần** cài `xforge` global: `plugins/claude/bin/xforge` ưu tiên
-`xforge` trên PATH, không có thì fallback về bản build trong monorepo — chỉ cần
-chạy `pnpm build` một lần.
+Sau đó vào giao diện Claude gõ: `/plugin install xforge`
+
+*(Khi đang phát triển cục bộ chưa publish lên GitHub, khởi chạy Claude bằng: `claude --plugin-dir /path/to/xforge/plugins/claude`)*
 
 ### Chạy một dự án từ Claude Code
 
