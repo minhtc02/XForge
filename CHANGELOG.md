@@ -6,6 +6,59 @@ All notable changes to XForge are documented here. The format follows
 
 ## [Unreleased]
 
+### Added — `xforge docs semantic`, the docs module's write-back path
+
+Four sections of every feature doc — user flows, business rules, error
+handling, edge cases — used to render as "Not detected (requires semantic
+analysis)" forever, because the deterministic parser sees structure but not
+intent, and there was no path for the LLM layer's conclusions to reach the
+model. The Test module already had two such paths (`test review`, `test a11y`);
+docs now has the third, and the pattern stays the same: the CLI templates out,
+the agent fills in, the CLI validates and merges.
+
+`xforge docs semantic` writes a template naming every feature and its four
+sections, with each feature's source files listed as the only things it may
+cite. `--apply` parses the filled template, and rejects — per section, with the
+offending refs named — any documented claim that lacks text, lacks sources, or
+cites a file the project model does not contain. What survives merges into
+`.xforge/state/semantic-enrichment.json`, and the affected feature documents
+regenerate immediately, rendering the text with its source refs inline. Applied
+enrichment survives every later `docs` / `docs sync` run; a rebuilt template
+(`--force`) is prefilled with what was already applied, so amending never
+starts from zero. Evidence-before-prose is enforced by the validator, not by
+convention: a generated doc sentence with no file:line behind it is a bug, and
+now it is also a rejected apply.
+
+### Changed — every XForge-generated artifact lives under `.xforge/`
+
+Generated output was scattered across three roots — `docs/xforge/` for the doc
+tree, `qa-runs/` for QA runs, `docs/qa/` for QA reports — so a project
+carried XForge's artifacts in three places and the repo root grew a `qa-runs/`
+nobody asked for. The defaults are now `.xforge/docs`, `.xforge/test/runs` and
+`.xforge/test/docs`; everything XForge writes shares one root, and the scanner's
+existing `.xforge/**` exclude means generated prose can no longer match the
+`docs/**/*.md` input globs even by accident. The input/output split is
+untouched: `docs/project/` stays where the user's documents are.
+
+`xforge upgrade` migrates existing projects: a root still sitting at exactly
+its legacy default is the old tool's choice, not the project's, so it is
+relocated (config updated, directory moved) and reported under `movedRoots`.
+A custom path is never touched, and a project where both old and new trees
+exist gets an action instead of a merge — combining them is a human decision.
+
+### Added — plugin commands for the rest of the CLI surface, and the agents they orchestrate
+
+Every CLI command now has a plugin command: `upgrade`, `check` (docs drift),
+`docs-semantic`, `test-approve`, `test-setup`, `test-navigation`,
+`test-generate`, `test-bugs` and `test-clean` join the existing set. The
+specialist agents that had no caller are wired into the flows that need them:
+`qa-lead`, `environment-agent` and `visual-analysis-agent` drive `/xforge:test-run`,
+`bug-triage-agent` drives `/xforge:test-bugs`, `accessibility-analysis-agent`
+picks the sites `/xforge:test-a11y` cannot, `dev-lead` / `spec-analyst` /
+`impact-analyst` review `/xforge:dev-plan`, `performance-analysis-agent`
+reads `/xforge:dev-performance` results, and `spec-change-recorder` phrases
+the edits `/xforge:dev-sync-docs` applies.
+
 ### Added — `xforge test a11y`, and the call site the test hook was missing
 
 Two edits to _product_ source, which XForge had avoided entirely until now. The

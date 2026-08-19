@@ -133,8 +133,8 @@ describe("docs source selection", () => {
     await runDocs(ctx(root), {});
 
     const config = await loadConfig(root);
-    expect(config.output.root).toBe("docs/xforge");
-    expect(existsSync(join(root, "docs/xforge/index.md"))).toBe(true);
+    expect(config.output.root).toBe(".xforge/docs");
+    expect(existsSync(join(root, ".xforge/docs/index.md"))).toBe(true);
 
     // The source document survives generation byte for byte. If output ever
     // landed in the input tree, the next run would ingest its own prose.
@@ -159,6 +159,6 @@ describe("docs source selection", () => {
     expect(result.source).toBe("project-docs");
     expect(result.projectDocCount).toBe(0);
     expect(result.stats.features).toBeGreaterThan(0);
-    expect(existsSync(join(root, "docs/xforge/index.md"))).toBe(true);
+    expect(existsSync(join(root, ".xforge/docs/index.md"))).toBe(true);
   });
 });

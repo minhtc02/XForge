@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -165,7 +166,7 @@ describe("runUpgrade", () => {
     await scaffold(root);
     await writeFile(
       join(root, ".gitignore"),
-      "qa-runs/\n.xforge/cache/\n.xforge/logs/\n",
+      ".xforge/test/runs/\n.xforge/cache/\n.xforge/logs/\n",
     );
     await runInit(ctx(root), {});
     await runDocs(ctx(root), {});
@@ -182,7 +183,71 @@ describe("runUpgrade", () => {
     const ignoreAction = result.actions.find((a) =>
       a.what.includes(".gitignore"),
     );
-    expect(ignoreAction?.what).toContain("qa-runs/");
+    expect(ignoreAction?.what).toContain(".xforge/test/runs/");
+  });
+
+  it("consolidates legacy output roots under .xforge/", async () => {
+    await scaffold(root);
+    await runInit(ctx(root), {});
+    // Rewind the config to what an older XForge wrote: outputs scattered
+    // across docs/ and the repository root.
+    const cfgPath = join(root, ".xforge/config.yaml");
+    const cfg = await readFile(cfgPath, "utf8");
+    await writeFile(
+      cfgPath,
+      cfg.replace("root: .xforge/docs", "root: docs/xforge"),
+    );
+    const testCfgPath = testConfigPath(root);
+    const testCfg = await readFile(testCfgPath, "utf8");
+    await writeFile(
+      testCfgPath,
+      testCfg
+        .replace("runs_root: .xforge/test/runs", "runs_root: qa-runs")
+        .replace("docs_root: .xforge/test/docs", "docs_root: docs/qa"),
+    );
+    await mkdir(join(root, "docs/xforge"), { recursive: true });
+    await writeFile(join(root, "docs/xforge/index.md"), "# generated\n");
+    await mkdir(join(root, "qa-runs/XFRUN-1"), { recursive: true });
+    await writeFile(join(root, "qa-runs/XFRUN-1/summary.md"), "run\n");
+    // A legacy project never had the new tree — init of the old version only
+    // created docs/xforge. Drop the freshly created target so the migration
+    // sees the real legacy shape.
+    await rm(join(root, ".xforge/docs"), { recursive: true, force: true });
+
+    const result = await runUpgrade(ctx(root), {});
+
+    expect(result.movedRoots.map((m) => m.key)).toEqual([
+      "output.root",
+      "output.runs_root",
+      "output.docs_root",
+    ]);
+    expect(result.movedRoots[0]?.directoryMoved).toBe(true);
+    const config = await loadConfig(root);
+    expect(config.output.root).toBe(".xforge/docs");
+    expect(
+      await readFile(join(root, ".xforge/docs/index.md"), "utf8"),
+    ).toContain("# generated");
+    const testConfig = await loadTestConfig(root);
+    expect(testConfig.output.runs_root).toBe(".xforge/test/runs");
+    expect(existsSync(join(root, ".xforge/test/runs/XFRUN-1/summary.md"))).toBe(
+      true,
+    );
+    expect(existsSync(join(root, "docs/xforge"))).toBe(false);
+    expect(existsSync(join(root, "qa-runs"))).toBe(false);
+  });
+
+  it("keeps custom output roots untouched", async () => {
+    await scaffold(root);
+    await runInit(ctx(root), {});
+    const cfgPath = join(root, ".xforge/config.yaml");
+    const cfg = await readFile(cfgPath, "utf8");
+    await writeFile(cfgPath, cfg.replace("root: .xforge/docs", "root: wiki"));
+
+    const result = await runUpgrade(ctx(root), {});
+
+    expect(result.movedRoots).toEqual([]);
+    const config = await loadConfig(root);
+    expect(config.output.root).toBe("wiki");
   });
 
   it("flags a pre-split layout that writes into the tree it now reads", async () => {
@@ -194,13 +259,13 @@ describe("runUpgrade", () => {
     const cfg = await readFile(cfgPath, "utf8");
     await writeFile(
       cfgPath,
-      cfg.replace("root: docs/xforge", "root: docs/project"),
+      cfg.replace("root: .xforge/docs", "root: docs/project"),
     );
 
     const result = await runUpgrade(ctx(root), { dryRun: true });
     const action = result.actions.find((a) => a.what.includes("output.root"));
     expect(action?.what).toContain("read its own output");
-    expect(action?.run).toContain("docs/xforge");
+    expect(action?.run).toContain(".xforge/docs");
   });
 
   it("does not flag the default layout", async () => {

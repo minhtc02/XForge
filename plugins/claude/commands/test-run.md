@@ -42,8 +42,20 @@ approved plan.
 3. The orchestrator builds once, then runs one shard per feature, continues on
    individual case failure, and retries infrastructure failures per config. Do
    not modify production behavior. Only XForge-managed simulators may be
-   created/erased.
+   created/erased. Delegate the phases to the specialist agents rather than
+   doing everything in one pass:
+
+   - `qa-lead` — owns the run: shard order, retry judgement, and the final
+     pass/fail/blocked accounting.
+   - `environment-agent` — simulator boot, privacy grants and other
+     environment failures. Note `simctl privacy` cannot grant camera or
+     notifications; a case needing those is blocked, not failed.
+   - `visual-analysis-agent` — screenshot diffs against the per-shard
+     baselines. A screenshot with no baseline is reported, never auto-approved;
+     visual escalation is one-way (PASS→FAIL allowed, FAIL→PASS never).
+
 4. When complete, summarize pass/fail/blocked counts (from `xforge test status`
-   / `report` / `bugs`) and point to the run artifacts under `qa-runs/<run-id>/`.
-   Report infrastructure/environment failures separately from product failures;
-   present suspected root causes as hypotheses.
+   / `report` / `bugs`) and point to the run artifacts under
+   `.xforge/test/runs/<run-id>/`. Hand failures to `/xforge:test-bugs` for
+   dedup + triage. Report infrastructure/environment failures separately from
+   product failures; present suspected root causes as hypotheses.

@@ -202,8 +202,8 @@ export type PerformanceSection = z.infer<typeof PerformanceSection>;
 
 export const OutputSection = z
   .object({
-    docs_root: z.string().default("docs/qa"),
-    runs_root: z.string().default("qa-runs"),
+    docs_root: z.string().default(".xforge/test/docs"),
+    runs_root: z.string().default(".xforge/test/runs"),
   })
   .default({});
 

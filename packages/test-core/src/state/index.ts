@@ -76,7 +76,7 @@ export function navigationGraphPath(
   return join(testRoot(projectRoot), relative);
 }
 
-/** qa-runs/<run-id>/ layout (blueprint §23). */
+/** `<runs_root>/<run-id>/ layout (blueprint §23). */
 export function runDir(
   projectRoot: string,
   runsRoot: string,

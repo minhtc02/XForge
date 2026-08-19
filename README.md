@@ -84,15 +84,15 @@ xforge --help
 
 ## Commands
 
-| Command                   | Description                                                                                                        |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `xforge init`             | Detect project type; write `.xforge/config.yaml`, state dirs, `docs/project/` (input) and `docs/xforge/` (output). |
-| `xforge doctor`           | Environment + config health checks.                                                                                |
-| `xforge docs`             | Build & persist the Canonical Project Model and the documentation tree. Confirms which source to build from.       |
-| `xforge docs sync`        | Regenerate for changed files (incremental).                                                                        |
-| `xforge docs check`       | Detect documentation drift (exit 1 if drift).                                                                      |
-| `xforge upgrade`          | Bring a project initialized by an older XForge up to date; only ever adds.                                         |
-| `xforge inspect <target>` | Print a slice of the Project Model.                                                                                |
+| Command                   | Description                                                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `xforge init`             | Detect project type; write `.xforge/config.yaml`, state dirs, `docs/project/` (input) and `.xforge/docs/` (output). |
+| `xforge doctor`           | Environment + config health checks.                                                                                 |
+| `xforge docs`             | Build & persist the Canonical Project Model and the documentation tree. Confirms which source to build from.        |
+| `xforge docs sync`        | Regenerate for changed files (incremental).                                                                         |
+| `xforge docs check`       | Detect documentation drift (exit 1 if drift).                                                                       |
+| `xforge upgrade`          | Bring a project initialized by an older XForge up to date; only ever adds.                                          |
+| `xforge inspect <target>` | Print a slice of the Project Model.                                                                                 |
 
 `xforge test <sub>` and `xforge dev <sub>` are documented under
 [XForge Test](#xforge-test-autonomous-ios-qa) and
@@ -141,7 +141,7 @@ Prefer to drive this from Claude Code? See
 | Directory       | Owner   | Role                                                                               |
 | --------------- | ------- | ---------------------------------------------------------------------------------- |
 | `docs/project/` | **you** | Your PRD, specs and design notes. XForge only reads this — never writes it.        |
-| `docs/xforge/`  | XForge  | Generated documentation. Regenerated on every run; edit only inside manual blocks. |
+| `.xforge/docs/` | XForge  | Generated documentation. Regenerated on every run; edit only inside manual blocks. |
 
 An existing `docs/project/` is adopted as-is, so a project that already keeps
 its specs there needs no migration.
@@ -185,7 +185,7 @@ is the LLM's, and the plugin wires the two halves together.
 /xforge:dev-doctor    /xforge:dev-plan     /xforge:dev-run       (+12 more dev commands)
 ```
 
-The plugin lives in `plugins/claude/`: 29 commands, 22 agents and 5 skills. Its
+The plugin lives in `plugins/claude/`: 39 commands, 22 agents and 5 skills. Its
 commands invoke the `xforge` CLI for all deterministic work and use sub-agents
 (`codebase-analyst`, `product-analyst`, `doc-writer`, `doc-reviewer`, plus 8 QA
 and 9 dev agents) for semantic analysis.
@@ -204,7 +204,7 @@ claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins
 
 Then inside Claude, run: `/plugin install xforge`
 
-*(For local dev without GitHub, start Claude with: `claude --plugin-dir /path/to/xforge/plugins/claude`)*
+_(For local dev without GitHub, start Claude with: `claude --plugin-dir /path/to/xforge/plugins/claude`)_
 
 ### Driving a project from Claude Code
 
@@ -268,8 +268,8 @@ correct behaviour, not a bug. `run` re-checks it and never prompts afterwards
 (§19.3), orchestrates build-once → per-feature shards → continue-on-failure,
 then triages results into **deduplicated, requirement-linked bug reports**
 (infrastructure failures are never reported as product bugs, §4.4) and writes
-`qa-runs/<run-id>/` (`summary.md/json`, `test-results.json`, `bugs.json`,
-`coverage.md`).
+`.xforge/test/runs/<run-id>/` (`summary.md/json`, `test-results.json`,
+`bugs.json`, `coverage.md`).
 
 ### Making a project testable at all
 

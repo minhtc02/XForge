@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://xforge.dev/schemas/semantic-enrichment.schema.json",
+  "title": "XForge Semantic Enrichment",
+  "description": "Schema for .xforge/state/semantic-enrichment.json — the LLM-written feature sections (user flows, business rules, error handling, edge cases) merged by `xforge docs semantic --apply`. Every documented claim carries source refs; the CLI rejects entries citing files the project model does not contain.",
+  "type": "object",
+  "required": ["schema_version", "updated_at", "features"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "features": {
+      "type": "object",
+      "description": "Feature id -> its four semantic sections.",
+      "additionalProperties": { "$ref": "#/definitions/feature" }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "feature": {
+      "type": "object",
+      "properties": {
+        "user_flows": { "$ref": "#/definitions/section" },
+        "business_rules": { "$ref": "#/definitions/section" },
+        "error_handling": { "$ref": "#/definitions/section" },
+        "edge_cases": { "$ref": "#/definitions/section" }
+      },
+      "additionalProperties": false
+    },
+    "section": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["documented", "not_applicable", "unknown"],
+          "description": "documented requires non-empty text and at least one source ref; the CLI validates both before merging."
+        },
+        "text": {
+          "type": "string",
+          "description": "Markdown content rendered into the feature document."
+        },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/sourceRef" },
+          "description": "Evidence for the claim. A documented section with no sources is rejected."
+        },
+        "note": {
+          "type": "string",
+          "description": "Why nothing is documented here (not_applicable / unknown)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "sourceRef": {
+      "type": "object",
+      "required": ["file"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Repo-relative path that must exist in the project model's source_files."
+        },
+        "line": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

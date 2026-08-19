@@ -81,7 +81,7 @@ async function shot(
 ): Promise<string> {
   const path = join(
     root,
-    "qa-runs/XFRUN-1/artifacts/screens/TC-ALARM-003",
+    ".xforge/test/runs/XFRUN-1/artifacts/screens/TC-ALARM-003",
     shardId,
     `${name}.png`,
   );

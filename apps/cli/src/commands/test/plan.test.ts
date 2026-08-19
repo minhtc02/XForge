@@ -138,7 +138,7 @@ describe("published model", () => {
 
     const published = JSON.parse(
       await readFile(
-        join(root, "docs/xforge/_meta/project-model.json"),
+        join(root, ".xforge/docs/_meta/project-model.json"),
         "utf8",
       ),
     );
@@ -169,7 +169,7 @@ describe("published model", () => {
 
     const published = JSON.parse(
       await readFile(
-        join(root, "docs/xforge/_meta/project-model.json"),
+        join(root, ".xforge/docs/_meta/project-model.json"),
         "utf8",
       ),
     );

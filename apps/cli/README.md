@@ -23,11 +23,11 @@ dependencies beyond Node.js 20+.
 cd /path/to/your/ios-project
 # Put your PRD and specs in docs/project/ first (an existing one is used as-is).
 xforge init      # detect the project, write .xforge/config.yaml + both docs trees
-xforge docs      # compile the model and generate docs/xforge/
+xforge docs      # compile the model and generate .xforge/docs/
 ```
 
 XForge keeps documentation input and output in **separate trees**:
-`docs/project/` is yours and is only ever read, `docs/xforge/` is generated and
+`docs/project/` is yours and is only ever read, `.xforge/docs/` is generated and
 rewritten on every run. They must not overlap — reading its own output back in
 would let XForge treat generated prose as a requirement and report perfect
 coverage of it. `xforge doctor` fails on an overlapping pair.

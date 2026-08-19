@@ -4,3 +4,4 @@ apps/cli/bundle/**
 pnpm-lock.yaml
 test-fixtures/**
 coverage/**
+data/

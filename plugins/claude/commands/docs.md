@@ -14,8 +14,9 @@ have evidence.
 - `docs/project/` — the **project's** documentation. XForge only ever reads it.
   This is the default source of truth: a PRD statement here becomes a
   requirement the implementation is measured against.
-- `docs/xforge/` — where XForge **writes**. Everything outside a manual block is
-  regenerated. Never treat this tree as intent; doing so would make a run agree
+- `.xforge/docs/` — where XForge **writes**. Everything XForge generates lives
+  under `.xforge/`; everything outside a manual block here is regenerated.
+  Never treat this tree as intent; doing so would make a run agree
   with itself.
 
 ## Steps
@@ -41,7 +42,7 @@ have evidence.
    full model is tens of thousands of tokens; the digest tells you which of
    them you actually need.
 3. Open further artifacts only for what you are about to write:
-   - one feature's detail → `docs/xforge/features/<id>.md`
+   - one feature's detail → `.xforge/docs/features/<id>.md`
    - a feature's file list → `.xforge/state/feature-map.json`
    - everything structural → `.xforge/state/project-model.json`
    - per-file inventories (symbols, accessibility identifiers, source files)
@@ -63,5 +64,9 @@ have evidence.
 6. When evidence is missing, use `UNKNOWN`, `INFERRED`, `NEEDS_CONFIRMATION` or
    `PARTIALLY_IMPLEMENTED` — do not guess.
 7. Preserve any content inside `<!-- xforge:manual:start -->` fences.
-8. Report the files written, which source the run led with, and any detected
+8. The four semantic sections of each feature doc (user flows, business
+   rules, error handling, edge cases) still read "Not detected" after a
+   deterministic run — they need analysis, which is a separate loop: run
+   `/xforge:docs-semantic` to template, fill and apply them with evidence.
+9. Report the files written, which source the run led with, and any detected
    gaps.

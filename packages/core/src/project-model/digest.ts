@@ -50,7 +50,10 @@ export interface ModelDigest {
 }
 
 /** Build the digest. Pure; derived entirely from the model. */
-export function buildModelDigest(model: ProjectModel): ModelDigest {
+export function buildModelDigest(
+  model: ProjectModel,
+  outputRoot = ".xforge/docs",
+): ModelDigest {
   const gapsByKind: Record<string, number> = {};
   for (const gap of model.gaps) {
     const key = gap.kind ?? "other";
@@ -119,8 +122,8 @@ export function buildModelDigest(model: ProjectModel): ModelDigest {
       feature_to_files: ".xforge/state/feature-map.json",
       requirement_to_feature: ".xforge/state/requirement-map.json",
       file_to_documents: ".xforge/state/dependency-graph.json",
-      traceability: "docs/xforge/traceability/prd-coverage.md",
-      gaps: "docs/xforge/traceability/implementation-gaps.md",
+      traceability: `${outputRoot}/traceability/prd-coverage.md`,
+      gaps: `${outputRoot}/traceability/implementation-gaps.md`,
     },
   };
 }

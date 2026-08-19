@@ -27,7 +27,7 @@ config logic in the LLM** — the deterministic work belongs to the CLI.
    - **Both documentation directories, and which is which**: `projectDocsDir`
      (`docs/project/` by default) is where the user puts their own PRD and
      specs — it is what `xforge docs` reads as the source of truth — while
-     `createdOutputDir` (`docs/xforge/`) is where XForge writes. Say plainly
+     `createdOutputDir` (`.xforge/docs/`) is where XForge writes. Say plainly
      that hand edits outside manual blocks in the output tree are lost on the
      next run. When `projectDocsExisted` is true, note that the existing
      directory was adopted untouched.

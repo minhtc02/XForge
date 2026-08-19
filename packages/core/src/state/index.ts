@@ -33,6 +33,8 @@ export const STATE_FILES = {
   featureMap: "state/feature-map.json",
   requirementMap: "state/requirement-map.json",
   generationState: "state/generation-state.json",
+  semanticEnrichment: "state/semantic-enrichment.json",
+  semanticTemplate: "state/semantic-enrichment.template.json",
 } as const;
 
 export function stateRoot(projectRoot: string): string {

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { mkdir, readFile, rename } from "node:fs/promises";
+import { basename, dirname, join, relative } from "node:path";
 import { XFORGE_VERSION, type Logger } from "@xforge/shared";
 import {
   appendixDir,
@@ -12,6 +12,7 @@ import {
   readTextFileSafe,
   scanFiles,
   statePath,
+  writeConfig,
   type DetectionResult,
   type XForgeConfig,
 } from "@xforge/core";
@@ -44,6 +45,14 @@ export interface UpgradeResult {
   filled: Array<{ key: string; value: string }>;
   /** Values left alone because the project already set them. */
   kept: Array<{ key: string; value: string }>;
+  /** Output roots moved from their legacy location under `.xforge/`. */
+  movedRoots: Array<{
+    key: string;
+    from: string;
+    to: string;
+    /** True when the legacy directory existed and was (or would be) moved. */
+    directoryMoved: boolean;
+  }>;
   /** Values still unresolved; listed so they can be filled by hand. */
   unresolved: string[];
   createdTestConfig: boolean;
@@ -109,6 +118,77 @@ export async function runUpgrade(
   const generatedBy = await readGeneratorVersion(projectRoot);
   const actions: UpgradeResult["actions"] = [];
 
+  // Everything XForge generates lives under `.xforge/`. Older defaults wrote
+  // three of the trees elsewhere (docs/xforge, qa-runs, docs/qa); a value
+  // still sitting at exactly one of those defaults is the old tool's choice,
+  // not the project's, so it is safe to relocate. Anything else is a
+  // deliberate path and stays untouched.
+  const movedRoots: UpgradeResult["movedRoots"] = [];
+  const migrateRoot = async (
+    key: string,
+    current: string,
+    legacy: string,
+    next: string,
+    apply: (value: string) => void,
+  ): Promise<boolean> => {
+    if (current !== legacy) return false;
+    const legacyDir = join(projectRoot, legacy);
+    const nextDir = join(projectRoot, next);
+    if (existsSync(nextDir)) {
+      // Both trees exist: merging them is a human decision.
+      actions.push({
+        what:
+          `Both ${legacy}/ and ${next}/ exist. Merge them by hand, then set ` +
+          `${key} to ${next}.`,
+        run: `edit config: ${key}: ${next}`,
+      });
+      return false;
+    }
+    const directoryMoved = existsSync(legacyDir);
+    if (!options.dryRun && directoryMoved) {
+      await mkdir(dirname(nextDir), { recursive: true });
+      await rename(legacyDir, nextDir);
+    }
+    if (!options.dryRun) apply(next);
+    movedRoots.push({ key, from: legacy, to: next, directoryMoved });
+    return true;
+  };
+
+  const coreOutputMoved = await migrateRoot(
+    "output.root",
+    config.output.root,
+    "docs/xforge",
+    ".xforge/docs",
+    (v) => {
+      config.output.root = v;
+    },
+  );
+  if (!options.dryRun && coreOutputMoved) {
+    await writeConfig(projectRoot, config);
+  }
+  const runsMoved = await migrateRoot(
+    "output.runs_root",
+    testConfig.output.runs_root,
+    "qa-runs",
+    ".xforge/test/runs",
+    (v) => {
+      testConfig.output.runs_root = v;
+    },
+  );
+  const qaDocsMoved = await migrateRoot(
+    "output.docs_root",
+    testConfig.output.docs_root,
+    "docs/qa",
+    ".xforge/test/docs",
+    (v) => {
+      testConfig.output.docs_root = v;
+    },
+  );
+  if (!options.dryRun && (runsMoved || qaDocsMoved)) {
+    await ensureTestDirs(projectRoot);
+    await writeTestConfig(projectRoot, testConfig);
+  }
+
   // Version drift is a hint, not proof: a project can sit on the same version
   // string while missing artifacts a later build introduced. Check for the
   // artifacts themselves — that is the signal that cannot be wrong.
@@ -157,9 +237,9 @@ export async function runUpgrade(
         `output.root (${overlap.output}) is inside sources.project_docs ` +
         `(${overlap.glob}), so \`xforge docs\` would read its own output as ` +
         "the project's requirements. Point output.root at a separate tree " +
-        "— docs/xforge is the new default — and keep your own documents " +
+        "— .xforge/docs is the default — and keep your own documents " +
         "where they are.",
-      run: "edit .xforge/config.yaml: output.root: docs/xforge",
+      run: "edit .xforge/config.yaml: output.root: .xforge/docs",
     });
   }
 
@@ -170,6 +250,7 @@ export async function runUpgrade(
     currentVersion: XFORGE_VERSION,
     filled,
     kept,
+    movedRoots,
     unresolved: xcode?.unresolved ?? [],
     createdTestConfig: !testConfigExisted && wroteTestConfig,
     actions,
@@ -303,7 +384,11 @@ async function stalePlans(projectRoot: string): Promise<string[]> {
 }
 
 /** XForge run artifacts a consuming project should not commit. */
-const REQUIRED_IGNORES = ["qa-runs/", ".xforge/cache/", ".xforge/logs/"];
+const REQUIRED_IGNORES = [
+  ".xforge/test/runs/",
+  ".xforge/cache/",
+  ".xforge/logs/",
+];
 
 async function missingGitignoreEntries(projectRoot: string): Promise<string[]> {
   const path = join(projectRoot, ".gitignore");
@@ -350,6 +435,21 @@ function render(
     process.stderr.write("\n  Left as you set them:\n");
     for (const { key, value } of result.kept) {
       process.stderr.write(`    ${key} = ${value}\n`);
+    }
+  }
+  if (result.movedRoots.length > 0) {
+    process.stderr.write(
+      "\n  Consolidated under .xforge/ (legacy output locations):\n",
+    );
+    for (const moved of result.movedRoots) {
+      const dir = moved.directoryMoved
+        ? result.dryRun
+          ? " (directory would move)"
+          : " (directory moved)"
+        : "";
+      process.stderr.write(
+        `    ${moved.key}: ${moved.from} → ${moved.to}${dir}\n`,
+      );
     }
   }
   if (result.unresolved.length > 0) {

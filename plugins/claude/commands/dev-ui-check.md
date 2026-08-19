@@ -15,3 +15,7 @@ rather than duplicating it (blueprint §20, §22). Never runs during `dev run`.
    ```
 2. This hands off to `xforge test plan --dev-run <plan-id>`. Run the resulting
    XForge Test plan only on explicit request and on a UI-testable Mac.
+3. Delegate screenshot verdicts to the `visual-analysis-agent`: diffs are
+   compared against per-shard baselines, a screenshot with no baseline is
+   reported rather than auto-approved, and escalation is one-way
+   (PASS→FAIL allowed, FAIL→PASS never).

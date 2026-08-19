@@ -78,7 +78,7 @@ apps/cli             Commander CLI (src/index.ts wires every command),
                      src/commands/test/*, src/commands/dev/*,
                      src/model-builder.ts (repo → Project Model),
                      scripts/bundle.mjs (esbuild single-file bundle)
-plugins/claude       plugin.json, 30 commands/*.md, 22 agents/*.md, 5 skills/, bin/xforge
+plugins/claude       plugin.json, 39 commands/*.md, 22 agents/*.md, 5 skills/, bin/xforge
 schemas/             12 published JSON schemas
 templates/           doc templates
 test-fixtures/       ios-swiftui (SPM fixture with UI test target), figma
@@ -90,22 +90,26 @@ depends upward; `test-core`/`dev-core` never fork core.
 
 ## Runtime state layout
 
-| Path                      | Owner     | Contents                                                                                                                           |
-| ------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `.xforge/config.yaml`     | core      | project config                                                                                                                     |
-| `.xforge/state/`          | core      | project-model.json (core) + `state/model/` appendices, 6 state files                                                               |
-| `.xforge/cache/`, `logs/` | core      | gitignored                                                                                                                         |
-| `.xforge/test/`           | test-core | config.yaml, plans/`<plan-id>`/ (plan.json, review.json, a11y-proposal.json), generated-tests/, design-snapshots/, navigation.yaml |
-| `qa-runs/<run-id>/`       | test-core | summary.md/json, test-results.json, bugs.json, coverage.md, artifacts/{screens,diffs,probe}, xcresult/ (gitignored)                |
-| `.xforge/dev/`            | dev-core  | plans/`<plan-id>`/, spec-staging/`<run-id>`/                                                                                       |
-| `.xforge/worktrees/`      | dev-core  | isolated worktrees, branch `xforge/dev/<change-id>/<group>`                                                                        |
-| `docs/project/`           | **user**  | the project's own PRD/specs — XForge reads, never writes                                                                           |
-| `docs/xforge/`            | core      | the generated documentation tree (`output.root`)                                                                                   |
+| Path                          | Owner     | Contents                                                                                                                           |
+| ----------------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `.xforge/config.yaml`         | core      | project config                                                                                                                     |
+| `.xforge/state/`              | core      | project-model.json (core) + `state/model/` appendices, 8 state files (incl. semantic-enrichment.json)                              |
+| `.xforge/cache/`, `logs/`     | core      | gitignored                                                                                                                         |
+| `.xforge/test/`               | test-core | config.yaml, plans/`<plan-id>`/ (plan.json, review.json, a11y-proposal.json), generated-tests/, design-snapshots/, navigation.yaml |
+| `.xforge/test/runs/<run-id>/` | test-core | summary.md/json, test-results.json, bugs.json, coverage.md, artifacts/{screens,diffs,probe}, xcresult/ (gitignored)                |
+| `.xforge/dev/`                | dev-core  | plans/`<plan-id>`/, spec-staging/`<run-id>`/                                                                                       |
+| `.xforge/worktrees/`          | dev-core  | isolated worktrees, branch `xforge/dev/<change-id>/<group>`                                                                        |
+| `docs/project/`               | **user**  | the project's own PRD/specs — XForge reads, never writes                                                                           |
+| `.xforge/docs/`               | core      | the generated documentation tree (`output.root`)                                                                                   |
 
 **The two docs trees must never overlap.** `docs/project/` is input,
-`docs/xforge/` is output. If output landed inside the input tree, the next run
+`.xforge/docs/` is output. Every artifact XForge generates lives under
+`.xforge/` — the docs tree, QA runs (`.xforge/test/runs/`), dev runs, state.
+If output landed inside the input tree, the next run
 would parse its own generated prose into requirements and report perfect
-coverage of them. `doctor` fails on an overlapping pair; `upgrade` reports it.
+coverage of them. `doctor` fails on an overlapping pair; `upgrade` reports it
+and relocates output roots still sitting at legacy defaults
+(`docs/xforge`, `qa-runs`, `docs/qa`).
 Anything that needs one of these paths reads it from config
 (`sources.project_docs`, `output.root`) via `globRootDir` — don't hardcode.
 
@@ -165,8 +169,8 @@ build.
 
 Global flags on everything: `--cwd <dir>`, `--json`, `--verbose`, `--quiet`.
 
-**Core**: `init`, `doctor`, `docs` (+ `docs sync`, `docs check`), `inspect`,
-`upgrade`.
+**Core**: `init`, `doctor`, `docs` (+ `docs sync`, `docs check`,
+`docs semantic`), `inspect`, `upgrade`.
 
 `docs` takes `--from-docs` / `--from-code` (mutually exclusive) and `--yes`.
 Prompting goes through `canPrompt` in `apps/cli/src/prompt.ts`, which refuses
@@ -223,15 +227,13 @@ individually approvable, which is the only reason they are acceptable at all.
 ## Known gaps
 
 - Feature-doc sections _User flows / Business rules / Error handling / Edge
-  cases_ render as "Not detected (requires semantic analysis)" — they need the
-  LLM layer.
-- **No CLI path for writing LLM results back into the _docs_ model** (a `model
-patch` command). The Test module now has two — `xforge test review` and
-  `xforge test a11y` — and they are the pattern to copy: template out,
-  evidence-bearing verdicts in, CLI performs the merge, re-hash invalidates
-  approval. `a11y` adds the variant for a write that lands in **product** source:
-  every entry defaults to unapproved, the anchor text is re-verified at apply
-  time, and the result is re-parsed before it is trusted.
+  cases_ render as "Not detected (requires semantic analysis)" until the LLM
+  layer fills them — `xforge docs semantic` is that write-back path. All
+  three modules now have the template-out / evidence-in / CLI-merges pattern
+  (`test review`, `test a11y`, `docs semantic`); a new write-back should copy
+  it. `a11y` remains the variant for a write that lands in **product**
+  source: every entry defaults to unapproved, the anchor text is re-verified
+  at apply time, and the result is re-parsed before it is trusted.
 - `xforge test a11y` proposes a site from element labels only. It cannot tell a
   screen root from a control, so a locator like `HomeScreen` (an anchor, not a
   label) gets no suggestion — deliberately, but it means the common

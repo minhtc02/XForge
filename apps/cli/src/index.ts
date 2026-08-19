@@ -10,6 +10,7 @@ import { createContext, type GlobalOptions } from "./context.js";
 import { runInit } from "./commands/init.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runDocs } from "./commands/docs.js";
+import { runDocsSemantic } from "./commands/docs-semantic.js";
 import { runSync } from "./commands/sync.js";
 import { runCheck } from "./commands/check.js";
 import { runInspect, type InspectTarget } from "./commands/inspect.js";
@@ -193,6 +194,24 @@ docs
   .description("Check for documentation drift (exit 1 if drift found)")
   .action(async (_opts, cmd: Command) => {
     await run((ctx) => runCheck(ctx), cmd);
+  });
+
+docs
+  .command("semantic")
+  .description(
+    "Write a template for the LLM-written feature sections; --apply validates evidence and merges it back",
+  )
+  .option(
+    "--apply",
+    "validate the filled template and merge it into the docs model",
+    false,
+  )
+  .option("--force", "overwrite an existing template", false)
+  .action(async (opts, cmd: Command) => {
+    await run(
+      (ctx) => runDocsSemantic(ctx, { apply: opts.apply, force: opts.force }),
+      cmd,
+    );
   });
 
 program

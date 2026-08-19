@@ -45,8 +45,14 @@ sure so I picked the outer view" is the one answer that must never happen.
    offered a match, or no label resembled the locator. That is not a gap to fill
    in mechanically — it is the case that needs source reading.
 
-2. **Read the view before approving anything.** Open the file, find the element,
-   and check three things:
+2. **Read the view before approving anything.** On a plan with many entries,
+   delegate the per-screen reading to the `accessibility-analysis-agent` —
+   one pass per screen, each returning the element that satisfies the entry's
+   `intent` (or "could not settle" — a valid answer). The deterministic layer
+   refuses to guess exactly when a screen root is wanted (`assert screen-is`
+   with no label match), and that is the case this agent exists for.
+
+   Whether you read the view yourself or via the agent, check three things:
 
    - **Is it the element under test?** Match it against `intent`. A locator a
      case _taps_ must be on the control that responds to a tap, not the row, cell

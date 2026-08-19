@@ -9,4 +9,5 @@ export * from "./ios/index.js";
 export * from "./analysis/index.js";
 export * from "./prd/index.js";
 export * from "./sync/index.js";
+export * from "./semantic/index.js";
 export * from "./generators/index.js";

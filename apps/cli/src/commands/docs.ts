@@ -34,6 +34,7 @@ import {
   generateThirdPartyDoc,
   generateUndocumentedCode,
   loadConfig,
+  loadSemanticEnrichment,
   mergeManualContent,
   serializeModelDigest,
   serializeProjectModel,
@@ -186,10 +187,15 @@ export async function runDocs(
     );
   }
 
+  // Semantic sections the LLM layer has already written back. Absent for a
+  // fresh project; once applied they survive every regeneration.
+  const semantic = await loadSemanticEnrichment(projectRoot);
+
   const genCtx: GenContext = {
     model,
     language: config.output.language,
     matrix,
+    ...(semantic ? { semantic: semantic.features } : {}),
   };
   const outRoot = config.output.root;
   const writtenFiles: string[] = [];
@@ -296,7 +302,9 @@ export async function runDocs(
 
     // The digest is what an agent should open first: a few KB that says what
     // exists and where to look, instead of the whole model.
-    const digest = serializeModelDigest(buildModelDigest(model));
+    const digest = serializeModelDigest(
+      buildModelDigest(model, config.output.root),
+    );
     await writeFileEnsured(statePath(projectRoot, "modelDigest"), digest);
     await writeFileEnsured(
       join(projectRoot, outRoot, "_meta", "summary.json"),

@@ -55,9 +55,10 @@ export const OutputConfig = z
   .object({
     /**
      * Where XForge writes. Kept separate from `sources.project_docs` so a
-     * regeneration can never overwrite something a human wrote.
+     * regeneration can never overwrite something a human wrote. Lives under
+     * `.xforge/` so every artifact XForge generates shares one root.
      */
-    root: z.string().default("docs/xforge"),
+    root: z.string().default(".xforge/docs"),
     format: z.enum(["markdown"]).default("markdown"),
     diagrams: z.enum(["mermaid", "none"]).default("mermaid"),
     language: z.string().default("vi"),

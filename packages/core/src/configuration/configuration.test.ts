@@ -11,7 +11,7 @@ describe("config validation", () => {
   it("applies defaults from a minimal config", () => {
     const cfg = validateConfig({ version: CONFIG_VERSION });
     expect(cfg.project.profile).toBe("ios-swift");
-    expect(cfg.output.root).toBe("docs/xforge");
+    expect(cfg.output.root).toBe(".xforge/docs");
     expect(cfg.output.language).toBe("vi");
     expect(cfg.generation.minimum_confidence).toBe(0.75);
     expect(cfg.exclude).toContain("Pods/**");

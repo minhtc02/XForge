@@ -4,6 +4,7 @@ import type {
   ProjectModel,
 } from "../project-model/schema.js";
 import type { CoverageRow } from "../prd/coverage.js";
+import type { SemanticFeature, SemanticSection } from "../semantic/index.js";
 import { generatedBlock } from "../manual-blocks/index.js";
 import { featureOverviewDiagram } from "./mermaid.js";
 
@@ -21,6 +22,12 @@ export interface GenContext {
   language: string;
   matrix?: CoverageRow[];
   sourceCommit?: string;
+  /**
+   * LLM-written semantic sections per feature id, merged by
+   * `xforge docs semantic --apply`. Absent sections keep the
+   * "requires semantic analysis" placeholder.
+   */
+  semantic?: Record<string, SemanticFeature>;
 }
 
 const T = {
@@ -80,6 +87,7 @@ const T = {
     knownGaps: "Khoảng trống đã biết",
     codeReferences: "Tham chiếu mã nguồn",
     needsLlm: "Chưa phát hiện (cần phân tích ngữ nghĩa)",
+    notApplicable: "Không áp dụng",
     grantable: "Simulator cấp được",
     notGrantable: "Simulator KHÔNG cấp được",
   },
@@ -139,6 +147,7 @@ const T = {
     knownGaps: "Known gaps",
     codeReferences: "Code references",
     needsLlm: "Not detected (requires semantic analysis)",
+    notApplicable: "Not applicable",
     grantable: "Simulator-grantable",
     notGrantable: "NOT simulator-grantable",
   },
@@ -365,9 +374,30 @@ function cappedBullets(
 }
 
 /** A single feature document following the §8 section structure. */
+/**
+ * Render one LLM-enriched section. Every documented claim carries its source
+ * refs inline — the evidence requirement that made the merge safe (§3.2).
+ */
+function semanticBody(
+  section: SemanticSection | undefined,
+  tr: Labels,
+): string {
+  if (!section || section.status === "unknown") return tr.needsLlm;
+  if (section.status === "not_applicable") {
+    return section.note
+      ? `${tr.notApplicable} — ${section.note}`
+      : tr.notApplicable;
+  }
+  const refs = section.sources
+    .map((s) => `\`${s.file}${s.line ? `:${s.line}` : ""}\``)
+    .join(", ");
+  return `${section.text.trim()}\n\n_${tr.sources}: ${refs}_`;
+}
+
 export function generateFeatureDoc(feature: Feature, ctx: GenContext): string {
   const { model, language } = ctx;
   const tr = t(language);
+  const sem = ctx.semantic?.[feature.id];
   const mine = <T extends { feature?: string }>(rows: T[]): T[] =>
     rows.filter((r) => r.feature === feature.id);
 
@@ -411,7 +441,7 @@ export function generateFeatureDoc(feature: Feature, ctx: GenContext): string {
       tr.status,
       `${feature.status} (${tr.confidence} ${feature.confidence.toFixed(2)})`,
     ],
-    [tr.userFlows, tr.needsLlm],
+    [tr.userFlows, semanticBody(sem?.user_flows, tr)],
     [
       tr.screens,
       bullets(
@@ -433,7 +463,7 @@ export function generateFeatureDoc(feature: Feature, ctx: GenContext): string {
             .join("\n")
         : tr.notDetected,
     ],
-    [tr.businessRules, tr.needsLlm],
+    [tr.businessRules, semanticBody(sem?.business_rules, tr)],
     [
       tr.dataModels,
       bullets(
@@ -483,8 +513,8 @@ export function generateFeatureDoc(feature: Feature, ctx: GenContext): string {
         tr.notDetected,
       ),
     ],
-    [tr.errorHandling, tr.needsLlm],
-    [tr.edgeCases, tr.needsLlm],
+    [tr.errorHandling, semanticBody(sem?.error_handling, tr)],
+    [tr.edgeCases, semanticBody(sem?.edge_cases, tr)],
     [
       tr.analyticsEvents,
       bullets(

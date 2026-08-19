@@ -17,7 +17,10 @@ updated — never automatically (blueprint §14, §15).
    ```
 
 2. The CLI loads the Staged Spec, detects docs drift, applies a safe merge,
-   updates the Project Model, and marks the journal `SYNCED`.
+   updates the Project Model, and marks the journal `SYNCED`. Delegate the
+   per-difference write to the `spec-change-recorder`: it phrases each Staged
+   Spec difference as a documentation edit, keeping as-built claims tied to
+   the run that produced them.
 3. If drift/conflict is detected, report it as `CONFLICTED` and do not force.
 
 > Phase 1 note: sync lands in Phase 7. The Staged Spec journal is recorded now.

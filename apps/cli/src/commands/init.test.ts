@@ -110,7 +110,7 @@ describe("runInit", () => {
 
     expect(existsSync(join(root, ".xforge/config.yaml"))).toBe(true);
     expect(existsSync(join(root, ".xforge/state"))).toBe(true);
-    expect(existsSync(join(root, "docs/xforge/_meta"))).toBe(true);
+    expect(existsSync(join(root, ".xforge/docs/_meta"))).toBe(true);
     // The input tree is created too, so there is an obvious place for a PRD.
     expect(existsSync(join(root, "docs/project"))).toBe(true);
     expect(result.projectDocsExisted).toBe(false);

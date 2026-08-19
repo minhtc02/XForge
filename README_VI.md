@@ -99,15 +99,15 @@ xforge --help
 
 ## Các command chính
 
-| Command                   | Mô tả                                                                                                            |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `xforge init`             | Detect loại dự án; tạo `.xforge/config.yaml`, thư mục state, `docs/project/` (nguồn) và `docs/xforge/` (output). |
-| `xforge doctor`           | Kiểm tra môi trường và tính hợp lệ của config.                                                                   |
-| `xforge docs`             | Tạo, lưu Canonical Project Model và cây tài liệu. Hỏi xác nhận nguồn tài liệu trước khi sinh.                    |
-| `xforge docs sync`        | Sinh lại tài liệu cho các file đã thay đổi theo cơ chế incremental.                                              |
-| `xforge docs check`       | Phát hiện documentation drift; trả exit code `1` nếu có drift.                                                   |
-| `xforge upgrade`          | Nâng dự án đã init bằng bản XForge cũ lên bản hiện tại; chỉ thêm, không bao giờ ghi đè.                          |
-| `xforge inspect <target>` | In ra một phần cụ thể của Project Model.                                                                         |
+| Command                   | Mô tả                                                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `xforge init`             | Detect loại dự án; tạo `.xforge/config.yaml`, thư mục state, `docs/project/` (nguồn) và `.xforge/docs/` (output). |
+| `xforge doctor`           | Kiểm tra môi trường và tính hợp lệ của config.                                                                    |
+| `xforge docs`             | Tạo, lưu Canonical Project Model và cây tài liệu. Hỏi xác nhận nguồn tài liệu trước khi sinh.                     |
+| `xforge docs sync`        | Sinh lại tài liệu cho các file đã thay đổi theo cơ chế incremental.                                               |
+| `xforge docs check`       | Phát hiện documentation drift; trả exit code `1` nếu có drift.                                                    |
+| `xforge upgrade`          | Nâng dự án đã init bằng bản XForge cũ lên bản hiện tại; chỉ thêm, không bao giờ ghi đè.                           |
+| `xforge inspect <target>` | In ra một phần cụ thể của Project Model.                                                                          |
 
 Nhóm `xforge test <sub>` và `xforge dev <sub>` được mô tả ở mục
 [XForge Test](#xforge-test--qa-tự-động-cho-ios) và
@@ -149,7 +149,7 @@ CLI thì không.
 | Thư mục         | Chủ sở hữu | Vai trò                                                                             |
 | --------------- | ---------- | ----------------------------------------------------------------------------------- |
 | `docs/project/` | **bạn**    | PRD, spec, tài liệu thiết kế của bạn. XForge chỉ đọc, không bao giờ ghi vào đây.    |
-| `docs/xforge/`  | XForge     | Tài liệu được sinh ra. Mỗi lần chạy đều ghi đè; chỉ sửa tay bên trong manual block. |
+| `.xforge/docs/` | XForge     | Tài liệu được sinh ra. Mỗi lần chạy đều ghi đè; chỉ sửa tay bên trong manual block. |
 
 Nếu `docs/project/` đã tồn tại sẵn, XForge dùng luôn và không đụng vào nội dung
 bên trong — dự án đang để spec ở đó không cần migrate gì cả.
@@ -254,7 +254,7 @@ claude plugin marketplace add https://github.com/YourOrg/XForce --sparse plugins
 
 Sau đó vào giao diện Claude gõ: `/plugin install xforge`
 
-*(Khi đang phát triển cục bộ chưa publish lên GitHub, khởi chạy Claude bằng: `claude --plugin-dir /path/to/xforge/plugins/claude`)*
+_(Khi đang phát triển cục bộ chưa publish lên GitHub, khởi chạy Claude bằng: `claude --plugin-dir /path/to/xforge/plugins/claude`)_
 
 ### Chạy một dự án từ Claude Code
 
@@ -492,7 +492,7 @@ Các lỗi infrastructure hoặc environment không được báo cáo như prod
 Artifact được lưu tại:
 
 ```text
-qa-runs/<run-id>/
+.xforge/test/runs/<run-id>/
 ```
 
 Ví dụ:
