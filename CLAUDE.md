@@ -58,8 +58,12 @@ Module-specific invariants:
   investigation, which is what `test review` / `/xforge:test-review` is for.
 - **Docs**: `docs sync` must stay genuinely incremental (affected-document graph
   in `packages/core/src/sync/`). `docs` leads with the project's own documents
-  (`sources.project_docs`) by default; `--from-code` flips it. The choice is
-  confirmed interactively when the terminal allows, and never in CI.
+  (`sources.project_docs`) by default; code-first generation is never a
+  fallback — it needs the explicit `--from-code` flag (or a configured
+  `generation.docs_source: code`), and an explicit choice is persisted to
+  config. With no project documents found, `docs` asks at a real terminal and
+  otherwise refuses with a pointer to `--from-code`; a tree labelled
+  "from docs" that describes the code was a bug, not a behaviour to restore.
 
 ## Layout
 

@@ -121,7 +121,7 @@ async function scaffoldXcode(dir: string): Promise<void> {
 
 async function initAndDocs(dir: string): Promise<void> {
   await runInit(ctx(dir), {});
-  await runDocs(ctx(dir), {});
+  await runDocs(ctx(dir), { source: "code" });
 }
 
 beforeEach(async () => {
@@ -165,7 +165,7 @@ describe("published model", () => {
       cfgPath,
       cfg.replace("publish_full_model: true", "publish_full_model: false"),
     );
-    await runDocs(ctx(root), {});
+    await runDocs(ctx(root), { source: "code" });
 
     const published = JSON.parse(
       await readFile(

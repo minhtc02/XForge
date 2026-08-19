@@ -6,6 +6,27 @@ All notable changes to XForge are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed — `docs` leads with the project's documents, and never falls back to code silently
+
+A docs-first run that found no documents used to warn and then generate the
+code-based tree anyway, still labelled "from docs" — intent documentation that
+silently degrades into behaviour documentation. Now the two sources are what
+they always should have been: documents are the default and the only default,
+and building from code takes an explicit `--from-code` (or a configured
+`generation.docs_source: code`). The old interactive confirmation prompt is
+gone for the same reason — picking "source code" behind a prompt was still
+picking it without the flag.
+
+When no project documents exist, `docs` asks at a real terminal (stop, or
+build from code) and otherwise refuses with a pointer to `--from-code`. Under
+Claude Code that refusal is the hand-off: the agent reads the error, asks the
+user, and only re-runs with `--from-code` after they choose. An explicit
+choice is recorded in `.xforge/config.yaml`, so `docs sync` and later runs
+follow it instead of re-deciding. The agent's role in the docs loop is
+spelled out in the plugin command: transform the project's raw documents —
+PRD, specs, design notes — into XForge's evidence-backed architecture, never
+substitute the code for them.
+
 ### Added — `xforge docs semantic`, the docs module's write-back path
 
 Four sections of every feature doc — user flows, business rules, error

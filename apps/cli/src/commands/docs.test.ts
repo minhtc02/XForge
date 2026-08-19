@@ -150,15 +150,30 @@ describe("docs source selection", () => {
     expect(existsSync(join(root, "docs/project/index.md"))).toBe(false);
   });
 
-  it("still generates, and says why it is thin, with no project documents", async () => {
+  it("refuses to silently document the code when project documents are missing", async () => {
     await scaffoldProject(root);
     await runInit(ctx(root), {});
 
-    const result = await runDocs(ctx(root), {});
+    // A docs-first run with nothing to lead with used to degrade into a
+    // code-only tree still labelled "from docs". Now it stops and points at
+    // the explicit flag instead.
+    await expect(runDocs(ctx(root), {})).rejects.toThrow(/--from-code/);
+    expect(existsSync(join(root, ".xforge/docs/index.md"))).toBe(false);
+  });
 
-    expect(result.source).toBe("project-docs");
-    expect(result.projectDocCount).toBe(0);
+  it("an explicit --from-code runs without documents and records the choice", async () => {
+    await scaffoldProject(root);
+    await runInit(ctx(root), {});
+
+    const result = await runDocs(ctx(root), { source: "code" });
+
+    expect(result.source).toBe("code");
     expect(result.stats.features).toBeGreaterThan(0);
-    expect(existsSync(join(root, ".xforge/docs/index.md"))).toBe(true);
+    // The explicit choice is persisted so `docs sync` and later runs follow
+    // it instead of hitting the no-documents refusal.
+    const config = await loadConfig(root);
+    expect(config.generation.docs_source).toBe("code");
+    const rerun = await runDocs(ctx(root), {});
+    expect(rerun.source).toBe("code");
   });
 });

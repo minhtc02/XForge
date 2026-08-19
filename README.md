@@ -146,29 +146,22 @@ Prefer to drive this from Claude Code? See
 An existing `docs/project/` is adopted as-is, so a project that already keeps
 its specs there needs no migration.
 
-`xforge docs` leads with **your documents** by default: a requirement stated in
+`xforge docs` leads with **your documents**: a requirement stated in
 `docs/project/` is intent, and the implementation is measured against it. Code
-is still scanned for evidence behind every claim. Because that choice changes
-the output substantially, `docs` confirms it before generating:
-
-```
-Which source should this documentation be built from?
-
-  ›  1. Project documents  — docs/project/**/*.md lead; code supplies evidence
-     2. Source code  — the repository leads; project documents are secondary
-```
-
-Skip the question with a flag, which is what CI and agents should do:
+is still scanned for evidence behind every claim. Documenting the code instead
+answers a different question — "what was built", not "what was meant" — so it
+is never a default and never a silent fallback:
 
 ```bash
 xforge docs --from-docs    # documents lead (the default)
-xforge docs --from-code    # the repository leads; use when docs have drifted
-xforge docs --yes          # accept the configured default without asking
+xforge docs --from-code    # code leads — explicit only (drifted docs, or a deliberate code-first choice)
 ```
 
-The prompt only appears at a real terminal — under `--json`, a pipe, or in CI
-the configured `generation.docs_source` applies silently. Set that in
-`.xforge/config.yaml` to change the default permanently.
+An explicit choice is recorded in `.xforge/config.yaml`
+(`generation.docs_source`), so later runs and `docs sync` follow it. When no
+project documents exist, `docs` asks at a real terminal and otherwise refuses
+with a pointer to `--from-code` — a tree labelled "from docs" that describes
+the code was a bug, not a fallback.
 
 ## Claude Code plugin
 
@@ -221,10 +214,10 @@ specs in `docs/project/` first:
 /xforge:test-run XFPLAN-…
 ```
 
-Under Claude Code, `/xforge:docs` passes `--yes`, so it does not show the source
-prompt — it applies the configured `generation.docs_source`. Ask for the other
-source explicitly ("build the docs from source code") and the agent adds
-`--from-code`.
+Under Claude Code, `/xforge:docs` passes `--yes`. Documents lead by default;
+ask for the other source explicitly ("build the docs from source code") and
+the agent adds `--from-code`. When the project has no documents, the CLI
+refuses and the agent must ask you before retrying with `--from-code`.
 
 **`/xforge:test-design` only works from the plugin.** The CLI is a plain Node
 process and cannot reach the Figma MCP server, but Claude can: the agent fetches

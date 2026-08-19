@@ -159,29 +159,22 @@ nguồn sự thật, lần chạy sau sẽ đọc văn bản do chính nó sinh 
 rồi báo cáo là đã đáp ứng 100% — một mô hình tự đồng ý với chính mình.
 `xforge doctor` sẽ báo fail nếu hai cây chồng lên nhau.
 
-`xforge docs` mặc định lấy **tài liệu dự án của bạn** làm nguồn: một yêu cầu viết
+`xforge docs` lấy **tài liệu dự án của bạn** làm nguồn: một yêu cầu viết
 trong `docs/project/` là _ý định_, và phần code được đối chiếu với nó. Source code
-vẫn được quét để làm bằng chứng cho mọi khẳng định. Vì lựa chọn này thay đổi kết
-quả đáng kể, `docs` luôn hỏi xác nhận trước khi sinh:
-
-```
-Which source should this documentation be built from?
-
-  ›  1. Project documents  — docs/project/**/*.md lead; code supplies evidence
-     2. Source code  — the repository leads; project documents are secondary
-```
-
-Bỏ qua câu hỏi bằng flag — đây là cách CI và agent nên dùng:
+vẫn được quét để làm bằng chứng cho mọi khẳng định. Sinh tài liệu từ code trả lời
+một câu hỏi khác — "code đang làm gì" thay vì "sản phẩm định làm gì" — nên nó
+không bao giờ là mặc định và không bao giờ là fallback im lặng:
 
 ```bash
 xforge docs --from-docs    # tài liệu dự án dẫn dắt (mặc định)
-xforge docs --from-code    # repo dẫn dắt; dùng khi tài liệu đã lệch so với code
-xforge docs --yes          # chấp nhận giá trị đã cấu hình, không hỏi
+xforge docs --from-code    # code dẫn dắt — chỉ khi chỉ định rõ (docs đã lệch, hoặc chủ đích code-first)
 ```
 
-Câu hỏi chỉ xuất hiện trên terminal thật. Khi chạy với `--json`, qua pipe, hoặc
-trong CI thì giá trị `generation.docs_source` trong config được áp dụng im lặng.
-Sửa giá trị đó trong `.xforge/config.yaml` để đổi mặc định vĩnh viễn.
+Lựa chọn chỉ định rõ được ghi vào `.xforge/config.yaml`
+(`generation.docs_source`) để các lần chạy sau và `docs sync` chạy theo. Khi
+không tìm thấy tài liệu dự án nào, `docs` sẽ hỏi trên terminal thật, còn trong
+mọi trường hợp khác nó từ chối và chỉ ra flag `--from-code` — một cây tài liệu
+ghi nhãn "from docs" nhưng mô tả code là bug, không phải fallback.
 
 Tất cả command đều hỗ trợ:
 
@@ -271,10 +264,10 @@ Mở Claude Code **tại thư mục dự án iOS của bạn**, sau khi đã đ�
 /xforge:test-run XFPLAN-…
 ```
 
-Khi chạy qua Claude Code, `/xforge:docs` truyền `--yes` nên **không hiện câu hỏi
-chọn nguồn** — nó áp dụng giá trị `generation.docs_source` trong config. Muốn
-dùng nguồn còn lại thì nói rõ ("sinh tài liệu từ source code"), agent sẽ thêm
-`--from-code`.
+Khi chạy qua Claude Code, `/xforge:docs` truyền `--yes`. Mặc định luôn là tài
+liệu dự án; muốn sinh từ source code thì nói rõ ("sinh tài liệu từ source
+code"), agent sẽ thêm `--from-code`. Nếu dự án chưa có tài liệu, CLI từ chối
+chạy và agent phải hỏi bạn trước khi thử lại với `--from-code`.
 
 **`/xforge:test-design` chỉ hoạt động qua plugin.** CLI là một Node process
 thuần, không với tới được Figma MCP server, nhưng Claude thì có: agent fetch

@@ -69,7 +69,7 @@ async function scaffold(dir: string): Promise<void> {
 async function planned(): Promise<string> {
   await scaffold(root);
   await runInit(ctx(root), {});
-  await runDocs(ctx(root), {});
+  await runDocs(ctx(root), { source: "code" });
   const plan = await runTestPlan(ctx(root), { level: "smoke", xcode: false });
   return plan.planId;
 }

@@ -12,10 +12,11 @@ of truth) and writes `.xforge/docs/`. Keep the two straight: generated prose is
 never evidence of intent.
 
 1. Run `xforge docs --json --yes` to build the deterministic Canonical Project
-   Model. Add `--from-code` when the user wants the documentation to describe
-   what the code actually does rather than what was specified; `--from-docs` is
-   the default. Check `source` and `projectDocCount` in the result — a
-   `project-docs` run with no documents found described the code regardless.
+   Model from the project's documents. `--from-code` builds from source
+   instead, but only on the user's explicit request — a code-first tree
+   answers "what was built", not "what was meant". An explicit choice is
+   persisted in config. If the run refuses with "No project documents found",
+   ask the user before retrying with `--from-code`; never fall back silently.
 2. Read `.xforge/state/model-digest.json` first, then
    `.xforge/state/project-model.json` only for what the digest points you at.
 3. Delegate semantic work to codebase-analyst, product-analyst, doc-writer and

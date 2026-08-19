@@ -157,7 +157,11 @@ const docs = program
     false,
   )
   .option("--from-docs", "build from the project's documents (default)", false)
-  .option("-y, --yes", "accept the configured source without asking", false)
+  .option(
+    "-y, --yes",
+    "do not ask how to proceed when no project documents exist",
+    false,
+  )
   .option("--dry-run", "do not write files", false)
   .action(async (opts, cmd: Command) => {
     await run((ctx) => {

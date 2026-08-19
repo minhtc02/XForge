@@ -47,7 +47,7 @@ async function scaffold(dir: string): Promise<void> {
 async function initAndGenerate(dir: string): Promise<void> {
   await scaffold(dir);
   await runInit(ctx(dir), {});
-  await runDocs(ctx(dir), {});
+  await runDocs(ctx(dir), { source: "code" });
 }
 
 async function modelFeatureId(dir: string): Promise<string> {
@@ -176,7 +176,7 @@ describe("xforge docs semantic", () => {
     );
     await runDocsSemantic(ctx(root), { apply: true });
 
-    await runDocs(ctx(root), {});
+    await runDocs(ctx(root), { source: "code" });
 
     const doc = await readFile(
       join(root, ".xforge/docs/features", `${featureId}.md`),

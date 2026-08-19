@@ -148,7 +148,7 @@ describe("runUpgrade", () => {
   it("detects state that predates this build by its missing artifacts", async () => {
     await scaffold(root);
     await runInit(ctx(root), {});
-    await runDocs(ctx(root), {});
+    await runDocs(ctx(root), { source: "code" });
     // An older build wrote no digest and no appendices.
     await rm(join(root, ".xforge/state/model-digest.json"), { force: true });
     await rm(join(root, ".xforge/state/model"), {
@@ -169,7 +169,7 @@ describe("runUpgrade", () => {
       ".xforge/test/runs/\n.xforge/cache/\n.xforge/logs/\n",
     );
     await runInit(ctx(root), {});
-    await runDocs(ctx(root), {});
+    await runDocs(ctx(root), { source: "code" });
 
     const result = await runUpgrade(ctx(root), {});
     expect(result.actions).toEqual([]);

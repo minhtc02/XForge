@@ -64,7 +64,7 @@ afterEach(async () => {
 async function planned(): Promise<string> {
   await scaffoldWithDeadScreen(root);
   await runInit(ctx(root), {});
-  await runDocs(ctx(root), {});
+  await runDocs(ctx(root), { source: "code" });
   const plan = await runTestPlan(ctx(root), { level: "smoke", xcode: false });
   return plan.planId;
 }
@@ -73,7 +73,7 @@ describe("dead-screen detection at plan time", () => {
   it("names the unreferenced screen and withholds approval", async () => {
     await scaffoldWithDeadScreen(root);
     await runInit(ctx(root), {});
-    await runDocs(ctx(root), {});
+    await runDocs(ctx(root), { source: "code" });
 
     const result = await runTestPlan(ctx(root), {
       level: "smoke",

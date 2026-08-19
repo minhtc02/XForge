@@ -40,13 +40,14 @@ import {
   serializeProjectModel,
   splitProjectModel,
   statePath,
+  writeConfig,
   writeProjectModel,
   type DocsSource,
   type GenContext,
   type ProjectModel,
   type XForgeConfig,
 } from "@xforge/core";
-import type { Logger } from "@xforge/shared";
+import { ValidationError, type Logger } from "@xforge/shared";
 import { buildProjectModel } from "../model-builder.js";
 import { canPrompt, selectOne } from "../prompt.js";
 import { emitResult, type CliContext } from "../context.js";
@@ -63,7 +64,7 @@ export interface DocsOptions {
    * terminal allows it.
    */
   source?: DocsSource;
-  /** Skip the source confirmation prompt (CI, scripts, `docs sync`). */
+  /** Skip the no-project-documents question (CI, scripts, `docs sync`). */
   yes?: boolean;
   /**
    * Restrict writes to these output-relative document paths (blueprint §21).
@@ -100,39 +101,18 @@ export interface DocsResult {
 }
 
 /**
- * Decide which truth `docs` leads with, asking when it is safe to ask.
- *
- * The order is: an explicit `--from-docs` / `--from-code` always wins; then
- * `--yes` or a non-interactive context takes the configured default silently;
- * otherwise the user confirms. The prompt exists because the two answers
- * produce genuinely different documentation, and the configured default is
- * only a guess about which one this particular run wants.
+ * Decide which truth `docs` leads with. Building from code changes what the
+ * tree *means* — it answers "what was built", not "what was meant" — so it is
+ * never a default and never a silent fallback: it takes an explicit
+ * `--from-code` (or a configured `generation.docs_source: code`). The
+ * previous interactive confirmation is gone for the same reason — choosing
+ * code behind a prompt was still choosing it without the flag.
  */
-async function resolveDocsSource(
-  ctx: CliContext,
+function resolveDocsSource(
   config: XForgeConfig,
   options: DocsOptions,
-): Promise<DocsSource> {
-  const configured = config.generation.docs_source;
-  if (options.source) return options.source;
-  if (options.yes || !canPrompt(ctx)) return configured;
-
-  return selectOne<DocsSource>(
-    "Which source should this documentation be built from?",
-    [
-      {
-        value: "project-docs",
-        label: "Project documents",
-        hint: `— ${config.sources.project_docs.join(", ")} lead; code supplies evidence`,
-      },
-      {
-        value: "code",
-        label: "Source code",
-        hint: "— the repository leads; project documents are secondary",
-      },
-    ],
-    configured === "project-docs" ? 0 : 1,
-  );
+): DocsSource {
+  return options.source ?? config.generation.docs_source;
 }
 
 /**
@@ -156,25 +136,73 @@ export async function runDocs(
   // is *confirmed* rather than assumed, because generating a whole tree from
   // the wrong source is expensive to notice and annoying to undo. In CI or
   // under --json there is no one to ask, so the configured value stands.
-  const source = await resolveDocsSource(ctx, config, options);
+  let source = resolveDocsSource(config, options);
+
+  // An explicit --from-docs / --from-code is a decision worth remembering:
+  // the choice is persisted so later runs and `docs sync` follow it instead
+  // of re-deciding.
+  if (options.source && options.source !== config.generation.docs_source) {
+    config.generation.docs_source = options.source;
+    if (!options.dryRun) await writeConfig(projectRoot, config);
+    logger.info(
+      `Recorded generation.docs_source: ${options.source} in .xforge/config.yaml`,
+    );
+  }
 
   const projectDocGlobs = config.sources.project_docs;
 
   logger.info("Building Canonical Project Model", { source });
-  const { model, fileIndex, matrix, projectDocCount } = await buildProjectModel(
+  let { model, fileIndex, matrix, projectDocCount } = await buildProjectModel(
     projectRoot,
     config,
     { docsSource: source },
   );
 
-  // Leading with documents that do not exist would silently degrade to a
-  // code-only run and label it "from docs" — say so instead.
+  // Leading with documents that do not exist used to degrade silently into a
+  // code-only run still labelled "from docs". Now it stops: interactively the
+  // user decides, and everywhere else the run refuses and points at
+  // --from-code — an agent reading the error can then ask before building
+  // from code on the user's behalf.
   if (source === "project-docs" && projectDocCount === 0) {
-    logger.warn(
-      `No project documents found under ${projectDocGlobs.join(", ")}. ` +
-        "The documentation will describe what the code does, not what it was " +
-        "meant to do. Add your PRD/specs there, or re-run with --from-code.",
-    );
+    if (!options.yes && canPrompt(ctx)) {
+      const choice = await selectOne<"abort" | "code">(
+        `No project documents found under ${projectDocGlobs.join(", ")}. How should this run proceed?`,
+        [
+          {
+            value: "abort",
+            label: "Stop",
+            hint: "— add your PRD/specs there, then re-run",
+          },
+          {
+            value: "code",
+            label: "Build from source code",
+            hint: "— documents what the code does, not what was intended",
+          },
+        ],
+        0,
+      );
+      if (choice === "abort") {
+        throw new ValidationError(
+          `Run cancelled — add your documents under ${projectDocGlobs.join(", ")} and re-run.`,
+        );
+      }
+      source = "code";
+      config.generation.docs_source = "code";
+      if (!options.dryRun) await writeConfig(projectRoot, config);
+      ({ model, fileIndex, matrix, projectDocCount } = await buildProjectModel(
+        projectRoot,
+        config,
+        { docsSource: source },
+      ));
+    } else {
+      throw new ValidationError(
+        `No project documents found under ${projectDocGlobs.join(", ")}. ` +
+          "XForge does not silently document the code when asked to lead " +
+          "with documents — the two answer different questions. Add your " +
+          "PRD/specs there and re-run, or pass --from-code to build from " +
+          "the code explicitly.",
+      );
+    }
   }
 
   // A missing PRD is reported, never prompted for: requirement authoring
